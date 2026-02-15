@@ -12,10 +12,19 @@ from PyQt6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QLineEdit, QTextEdit,
     QFileDialog, QMessageBox, QProgressBar, QSplitter,
     QFrame, QComboBox, QGroupBox, QSlider, QDoubleSpinBox,
-    QSizePolicy
+    QSizePolicy, QDockWidget, QTextBrowser, QScrollArea
 )
 from PyQt6.QtCore import Qt, QPoint, QSize, QThread, pyqtSignal
 from PyQt6.QtGui import QFont, QPixmap, QPainter, QPen, QColor, QImage, QVector2D
+
+# 尝试导入 openai 库
+HAS_OPENAI_LIB = False
+try:
+    from openai import OpenAI
+    HAS_OPENAI_LIB = True
+except ImportError:
+    # 如果 openai 库未安装，在后续使用时提示用户
+    pass
 from PyQt6.QtOpenGLWidgets import QOpenGLWidget
 from PyQt6.QtOpenGL import QOpenGLShader, QOpenGLShaderProgram
 from PyQt6.QtOpenGL import QOpenGLBuffer, QOpenGLVertexArrayObject
@@ -71,9 +80,9 @@ class ClickableImageLabel(QLabel):
         
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.setStyleSheet("""
-            background-color: #1a1d29;
-            color: #e0e0e0;
-            border: 2px solid #3a3f5c;
+            background-color: #f5f7fa;
+            color: #333333;
+            border: 2px solid #d9d9d9;
             border-radius: 8px;
             font-size: 13px;
         """)
@@ -350,6 +359,90 @@ class MatplotlibCanvas(FigureCanvas):
         self.draw()
 
 
+class LLMWorker(QThread):
+    """LLM 对话工作线程 - 调用 DeepSeek API"""
+    
+    # 定义信号
+    response_ready = pyqtSignal(str)  # 传输 AI 返回的文本
+    error_occurred = pyqtSignal(str)  # 传输错误信息
+    
+    def __init__(self, api_key: str, user_question: str, context_data: str = ""):
+        """
+        初始化 LLMWorker
+        
+        参数:
+            api_key: DeepSeek API 密钥
+            user_question: 用户提问
+            context_data: 上下文数据（可选）
+        """
+        super().__init__()
+        self.api_key = api_key
+        self.user_question = user_question
+        self.context_data = context_data
+    
+    def run(self):
+        """执行 LLM 对话"""
+        try:
+            # 检查是否安装了 openai 库
+            if not HAS_OPENAI_LIB:
+                self.error_occurred.emit("❌ openai 库未安装，请运行: pip install openai")
+                return
+            
+            # 初始化 OpenAI 客户端（使用 DeepSeek 的 API 端点）
+            client = OpenAI(
+                api_key=self.api_key,
+                base_url="https://api.deepseek.com"
+            )
+            
+            # 构造 System Prompt
+            system_prompt = """你是 PhysicsLab Pro 的智能助教，擅长物理实验原理、误差分析和数据解释。
+            
+你的特点：
+• 回答要简洁专业，逻辑清晰
+• 支持 LaTeX 公式（使用 $...$ 包裹二月内联公式，$$...$$ 包裹块级公式）
+• 针对物理实验提供指导和分析
+• 如果用户提供实验数据，帮助分析和解释
+• 对于计算错误或不合理的数据，提出改进建议
+
+回答格式：
+- 简洁明了，避免冗长的解释
+- 如有公式，使用 LaTeX 格式
+- 提供必要的单位和数值精度
+- 如需补充信息，以友好的方式请求"""
+            
+            # 构造用户消息
+            user_message = self.user_question
+            if self.context_data.strip():
+                user_message = f"{self.user_question}\n\n背景信息:\n{self.context_data}"
+            
+            # 调用 DeepSeek API
+            message = client.chat.completions.create(
+                model="deepseek-chat",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_message}
+                ],
+                stream=False,
+                temperature=0.7,
+                max_tokens=2000
+            )
+            
+            # 提取返回内容
+            response_text = message.choices[0].message.content
+            self.response_ready.emit(response_text)
+            
+        except Exception as e:
+            # 捕获所有错误并发射错误信号
+            error_msg = f"❌ API 错误: {str(e)}"
+            if "401" in str(e):
+                error_msg = "❌ API Key 无效，请检查密钥是否正确"
+            elif "connection" in str(e).lower():
+                error_msg = "❌ 网络连接失败，请检查网络"
+            elif "timeout" in str(e).lower():
+                error_msg = "❌ 请求超时，请稍后重试"
+            self.error_occurred.emit(error_msg)
+
+
 class VideoWorker(QThread):
     """视频处理工作线程"""
     
@@ -444,6 +537,300 @@ class VideoWorker(QThread):
     def resume(self):
         """恢复处理"""
         self.is_paused = False
+
+
+
+
+class AIAssistantDock(QDockWidget):
+    """AI 虚拟助教停靠窗口"""
+    
+    # API Key 配置常量（方便使用者修改）
+    API_KEY = "sk-5d241c72f9fa40038925f5fad8db1f3d"
+    
+    def __init__(self, parent=None):
+        super().__init__("🤖 AI 虚拟助教", parent)
+        self.llm_worker = None  # LLM 工作线程
+        self.init_ui()
+    
+    def init_ui(self):
+        """初始化 UI 组件"""
+        # 创建主容器
+        main_widget = QWidget()
+        main_layout = QVBoxLayout()
+        main_layout.setContentsMargins(10, 10, 10, 10)
+        main_layout.setSpacing(10)
+        
+        # 标题标签
+        title_label = QLabel("💬 智能问答")
+        title_label.setFont(QFont("Arial", 11, QFont.Weight.Bold))
+        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        main_layout.addWidget(title_label)
+        
+        # 聊天记录显示区域（QTextBrowser 支持 HTML）
+        self.chat_display = QTextBrowser()
+        self.chat_display.setReadOnly(True)
+        self.chat_display.setMaximumHeight(400)
+        self.chat_display.setStyleSheet("""
+            QTextBrowser {
+                background-color: #ffffff;
+                color: #333333;
+                border: 2px solid #d9d9d9;
+                border-radius: 8px;
+                padding: 10px;
+                font-size: 12px;
+                line-height: 1.6;
+            }
+        """)
+        self.chat_display.setMarkdown("### 欢迎使用 AI 虚拟助教\n\n这里将显示您与 AI 的对话记录。请在下方输入您的问题。")
+        main_layout.addWidget(self.chat_display)
+        
+        # 输入区域
+        input_label = QLabel("📝 您的问题：")
+        input_label.setFont(QFont("Arial", 10, QFont.Weight.Bold))
+        main_layout.addWidget(input_label)
+        
+        # 用户输入框
+        self.input_field = QLineEdit()
+        self.input_field.setPlaceholderText("请输入您的问题，然后按 Enter 或点击发送按钮...")
+        self.input_field.setMinimumHeight(36)
+        self.input_field.returnPressed.connect(self.on_send_question)
+        self.input_field.setStyleSheet("""
+            QLineEdit {
+                background-color: #ffffff;
+                color: #333333;
+                border: 2px solid #d9d9d9;
+                border-radius: 6px;
+                padding: 8px;
+                font-size: 12px;
+                selection-background-color: #0078d4;
+                selection-color: #ffffff;
+            }
+            QLineEdit:focus {
+                border: 2px solid #0078d4;
+                background-color: #ffffff;
+            }
+        """)
+        main_layout.addWidget(self.input_field)
+        
+        # 按钮区域
+        button_layout = QHBoxLayout()
+        button_layout.setSpacing(8)
+        
+        # 发送按钮
+        self.send_button = QPushButton("📤 发送")
+        self.send_button.setMinimumHeight(36)
+        self.send_button.setMaximumWidth(100)
+        self.send_button.clicked.connect(self.on_send_question)
+        self.send_button.setStyleSheet("""
+            QPushButton {
+                background-color: #0078d4;
+                color: #ffffff;
+                border: none;
+                padding: 8px 16px;
+                border-radius: 6px;
+                font-weight: 600;
+                font-size: 11px;
+            }
+            QPushButton:hover {
+                background-color: #106ebe;
+            }
+            QPushButton:pressed {
+                background-color: #005a9e;
+            }
+        """)
+        button_layout.addWidget(self.send_button)
+        
+        # 清空聊天记录按钮
+        self.clear_button = QPushButton("🗑️ 清空")
+        self.clear_button.setMinimumHeight(36)
+        self.clear_button.setMaximumWidth(80)
+        self.clear_button.clicked.connect(self.on_clear_chat)
+        self.clear_button.setStyleSheet("""
+            QPushButton {
+                background-color: #ffffff;
+                color: #666666;
+                border: 2px solid #d9d9d9;
+                padding: 8px 16px;
+                border-radius: 6px;
+                font-weight: 600;
+                font-size: 11px;
+            }
+            QPushButton:hover {
+                background-color: #f5f5f5;
+                color: #333333;
+            }
+            QPushButton:pressed {
+                background-color: #e6e6e6;
+            }
+        """)
+        button_layout.addWidget(self.clear_button)
+        button_layout.addStretch()
+        
+        main_layout.addLayout(button_layout)
+        
+        # 提示信息标签
+        self.status_label = QLabel("⏱️ 准备就绪")
+        self.status_label.setFont(QFont("Arial", 10))
+        self.status_label.setStyleSheet("color: #90ee90;")
+        self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        main_layout.addWidget(self.status_label)
+        
+        # 信息提示
+        info_label = QLabel(
+            "💡 提示：请先在右侧项目中配置您的 DeepSeek API Key\n"
+            "（搜索 'API_KEY =' 进行修改）"
+        )
+        info_label.setFont(QFont("Arial", 9))
+        info_label.setStyleSheet("color: #f59e0b; line-height: 1.4;")
+        info_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        info_label.setWordWrap(True)
+        main_layout.addWidget(info_label)
+        
+        # 添加伸缩空间
+        main_layout.addStretch()
+        
+        # 设置主小部件
+        main_widget.setLayout(main_layout)
+        self.setWidget(main_widget)
+        
+        # 设置停靠窗口的样式
+        self.setStyleSheet("""
+            QDockWidget {
+                background-color: #ffffff;
+                color: #333333;
+                border: 2px solid #d9d9d9;
+                border-radius: 8px;
+                titlebar-close-icon: url(none);
+            }
+            QDockWidget::title {
+                text-align: center;
+                padding: 5px;
+                background-color: #f5f7fa;
+                border-radius: 4px;
+                font-weight: bold;
+                color: #333333;
+            }
+        """)
+    
+    def on_send_question(self):
+        """发送问题按钮点击事件"""
+        user_input = self.input_field.text().strip()
+        
+        if not user_input:
+            QMessageBox.warning(self, "警告", "请输入问题！")
+            return
+        
+        # 检查 API Key 是否已配置
+        if self.API_KEY == "sk-在此处填入你的DeepSeek Key":
+            QMessageBox.warning(
+                self, 
+                "⚠️ 未配置 API Key", 
+                "请先配置您的 DeepSeek API Key：\n\n"
+                "1. 打开 main.py 文件\n"
+                "2. 搜索 'API_KEY =' (在 AIAssistantDock 类中)\n"
+                "3. 将密钥替换为您的 DeepSeek Key\n\n"
+                "获取密钥：https://platform.deepseek.com/api_keys"
+            )
+            return
+        
+        # 检查是否已安装 openai 库
+        if not HAS_OPENAI_LIB:
+            QMessageBox.warning(
+                self, 
+                "❌ 缺少依赖库",
+                "openai 库未安装！\n\n"
+                "请在终端运行以下命令安装：\n\n"
+                "pip install openai"
+            )
+            return
+        
+        # 禁用输入框和按钮
+        self.input_field.setEnabled(False)
+        self.send_button.setEnabled(False)
+        self.send_button.setText("🕐 AI 正在思考...")
+        self.status_label.setText("⏳ 正在处理您的问题...")
+        self.status_label.setStyleSheet("color: #ffb347;")  # 橙色
+        
+        # 在聊天窗口中显示用户问题
+        self.append_message("👤 您", user_input, is_user=True)
+        
+        # 清空输入框
+        self.input_field.clear()
+        
+        # 创建并启动 LLM 工作线程
+        # 可选：从应用程序的某个地方获取上下文数据
+        context_data = ""  # 暂时不使用上下文
+        
+        self.llm_worker = LLMWorker(self.API_KEY, user_input, context_data)
+        self.llm_worker.response_ready.connect(self.on_response_received)
+        self.llm_worker.error_occurred.connect(self.on_error_occurred)
+        self.llm_worker.finished.connect(self.on_worker_finished)
+        self.llm_worker.start()
+    
+    def append_message(self, role: str, message: str, is_user: bool = False):
+        """向聊天窗口追加消息"""
+        # 获取当前的 HTML 内容
+        current_html = self.chat_display.toHtml()
+        
+        # 构造消息 HTML（支持 Markdown 风格）
+        if is_user:
+            # 用户消息（蓝色，右对齐）
+            message_html = f"""
+<div style="margin: 12px 0; padding: 10px; background-color: #1e2837; border-left: 3px solid #4f7cff; border-radius: 4px;">
+    <span style="color: #4f7cff; font-weight: bold;">👤 {role}</span>
+    <div style="color: #e0e0e0; margin-top: 6px; white-space: pre-wrap; word-wrap: break-word;">{message}</div>
+</div>
+"""
+        else:
+            # AI 消息（绿色，左对齐），支持基本的 Markdown
+            # 简单处理 LaTeX 公式
+            processed_message = message.replace("$", "")  # 移除公式符号，在 QTextBrowser 中直接显示
+            message_html = f"""
+<div style="margin: 12px 0; padding: 10px; background-color: #1a2332; border-left: 3px solid #4caf50; border-radius: 4px;">
+    <span style="color: #4caf50; font-weight: bold;">🤖 {role}</span>
+    <div style="color: #e0e0e0; margin-top: 6px; white-space: pre-wrap; word-wrap: break-word; line-height: 1.6;">{processed_message}</div>
+</div>
+"""
+        
+        # 追加到聊天窗口（去掉</body></html> 标签后添加新内容）
+        new_html = current_html.replace("</body></html>", "") + message_html + "</body></html>"
+        self.chat_display.setHtml(new_html)
+        
+        # 自动滚动到底部
+        scroll_bar = self.chat_display.verticalScrollBar()
+        scroll_bar.setValue(scroll_bar.maximum())
+    
+    def on_response_received(self, response: str):
+        """接收 AI 响应"""
+        self.append_message("AI 助教", response, is_user=False)
+        self.status_label.setText("✅ 回答完成，您可以继续提问")
+        self.status_label.setStyleSheet("color: #90ee90;")  # 绿色
+    
+    def on_error_occurred(self, error_msg: str):
+        """处理错误"""
+        self.append_message("⚠️ 系统", error_msg, is_user=False)
+        self.status_label.setText(f"❌ 错误: {error_msg[:30]}...")
+        self.status_label.setStyleSheet("color: #ff6b6b;")  # 红色
+    
+    def on_worker_finished(self):
+        """工作线程完成"""
+        self.input_field.setEnabled(True)
+        self.send_button.setEnabled(True)
+        self.send_button.setText("📤 发送")
+    
+    def on_clear_chat(self):
+        """清空聊天记录"""
+        reply = QMessageBox.question(
+            self, 
+            "确认清空",
+            "确定要清空所有聊天记录吗？",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        
+        if reply == QMessageBox.StandardButton.Yes:
+            self.chat_display.setMarkdown("### 聊天记录已清空\n\n准备开始新的对话...")
+            self.status_label.setText("🔄 已清空，准备就绪")
+            self.status_label.setStyleSheet("color: #90ee90;")
 
 
 class OpticsLabTab(QWidget):
@@ -549,8 +936,8 @@ class OpticsLabTab(QWidget):
         display_frame.setLineWidth(2)
         display_frame.setStyleSheet("""
             QFrame {
-                background-color: #1a1d29;
-                border: 3px solid #4f7cff;
+                background-color: #ffffff;
+                border: 3px solid #0078d4;
                 border-radius: 8px;
             }
         """)
@@ -1915,8 +2302,8 @@ class VirtualLabTab(QWidget):
         display_frame.setLineWidth(2)
         display_frame.setStyleSheet("""
             QFrame {
-                background-color: #1a1d29;
-                border: 3px solid #4f7cff;
+                background-color: #ffffff;
+                border: 3px solid #0078d4;
                 border-radius: 8px;
             }
         """)
@@ -2131,48 +2518,97 @@ class MainWindow(QMainWindow):
         # 设置选项卡为中央部件
         self.setCentralWidget(self.tab_widget)
         
+        # ===== 创建并添加 AI 虚拟助教停靠窗口 =====
+        self.ai_assistant = AIAssistantDock(self)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.ai_assistant)
+        # 默认显示 AI 助手
+        self.ai_assistant.show()
+        
+        # ===== 创建菜单栏 =====
+        menubar = self.menuBar()
+        menubar.setStyleSheet("""
+            QMenuBar {
+                background-color: #f5f7fa;
+                color: #333333;
+                border-bottom: 2px solid #d9d9d9;
+            }
+            QMenuBar::item:selected {
+                background-color: #0078d4;
+                color: #ffffff;
+            }
+            QMenu {
+                background-color: #ffffff;
+                color: #333333;
+            }
+            QMenu::item:selected {
+                background-color: #0078d4;
+                color: #ffffff;
+            }
+        """)
+        
+        # 帮助菜单
+        help_menu = menubar.addMenu("帮助(&H)")
+        
+        # 显示/隐藏 AI 助手菜单项
+        toggle_ai_action = help_menu.addAction("🤖 显示/隐藏 AI 助手")
+        toggle_ai_action.triggered.connect(self.toggle_ai_assistant)
+        
+        help_menu.addSeparator()
+        
+        # 关于菜单项
+        about_action = help_menu.addAction("📖 关于 PhysicsLab Pro")
+        about_action.triggered.connect(self.show_about)
+        
         # 设置窗口样式
         self.setStyleSheet("""
-            /* 主窗口背景 - 深蓝灰色渐变风格 */
+            /* 主窗口背景 */
             QMainWindow {
-                background-color: #1a1d29;
+                background-color: #f5f7fa;
+            }
+            
+            /* 菜单栏 */
+            QMenuBar {
+                background-color: #f5f7fa;
+                color: #333333;
+                border-bottom: 1px solid #d9d9d9;
             }
             
             /* 选项卡面板 */
             QTabWidget::pane {
-                border: 2px solid #2d3142;
+                border: 2px solid #d9d9d9;
                 border-radius: 8px;
-                background-color: #252836;
+                background-color: #ffffff;
                 top: -1px;
             }
             
             /* 选项卡标签 */
             QTabBar::tab {
-                background-color: #2d3142;
-                color: #b0b8c4;
+                background-color: #ffffff;
+                color: #666666;
                 padding: 10px 24px;
                 margin-right: 4px;
                 border-top-left-radius: 6px;
                 border-top-right-radius: 6px;
                 font-size: 13px;
                 font-weight: 500;
+                border: 1px solid #d9d9d9;
             }
             
             QTabBar::tab:hover {
-                background-color: #3a3f5c;
-                color: #ffffff;
+                background-color: #f0f5ff;
+                color: #333333;
             }
             
             QTabBar::tab:selected {
-                background-color: #4f7cff;
+                background-color: #0078d4;
                 color: #ffffff;
                 font-weight: 600;
+                border: 1px solid #0078d4;
             }
             
-            /* 按钮样式 - 现代蓝色渐变 */
+            /* 按钮样式 */
             QPushButton {
-                background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #5b8fff, stop:1 #4a7cff);
+                background-color: #0078d4;
                 color: #ffffff;
                 border: none;
                 padding: 10px 20px;
@@ -2182,22 +2618,20 @@ class MainWindow(QMainWindow):
             }
             
             QPushButton:hover {
-                background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #6b9fff, stop:1 #5a8cff);
+                background-color: #106ebe;
             }
             
             QPushButton:pressed {
-                background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #4a7cff, stop:1 #3a6cff);
+                background-color: #005a9e;
             }
             
             /* 表格样式 */
             QTableWidget {
-                background-color: #1e2132;
-                color: #e0e4eb;
-                border: 2px solid #2d3142;
+                background-color: #ffffff;
+                color: #333333;
+                border: 2px solid #d9d9d9;
                 border-radius: 6px;
-                gridline-color: #2d3142;
+                gridline-color: #d9d9d9;
                 font-size: 12px;
             }
             
@@ -2207,57 +2641,92 @@ class MainWindow(QMainWindow):
             }
             
             QTableWidget::item:selected {
-                background-color: #4f7cff;
+                background-color: #0078d4;
                 color: #ffffff;
             }
             
             QHeaderView::section {
-                background-color: #2d3142;
-                color: #b0b8c4;
+                background-color: #f5f7fa;
+                color: #333333;
                 padding: 8px;
-                border: none;
+                border: 1px solid #d9d9d9;
                 font-weight: 600;
                 font-size: 12px;
             }
             
             /* 输入框和文本区域 */
             QLineEdit, QTextEdit {
-                background-color: #1e2132;
-                color: #e0e4eb;
-                border: 2px solid #2d3142;
+                background-color: #ffffff;
+                color: #333333;
+                border: 2px solid #d9d9d9;
                 border-radius: 6px;
                 padding: 8px;
                 font-size: 12px;
-                selection-background-color: #4f7cff;
+                selection-background-color: #0078d4;
+                selection-color: #ffffff;
             }
             
             QLineEdit:focus, QTextEdit:focus {
-                border: 2px solid #4f7cff;
-                background-color: #252836;
+                border: 2px solid #0078d4;
+                background-color: #ffffff;
             }
             
             /* 标签样式 */
             QLabel {
-                color: #e0e4eb;
+                color: #333333;
                 font-size: 12px;
             }
             
             /* 进度条样式 */
             QProgressBar {
-                border: 2px solid #2d3142;
+                border: 2px solid #d9d9d9;
                 border-radius: 6px;
                 text-align: center;
-                color: #ffffff;
+                color: #333333;
                 font-weight: 600;
-                background-color: #1e2132;
+                background-color: #f5f7fa;
             }
             
             QProgressBar::chunk {
-                background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                    stop:0 #5b8fff, stop:1 #4a7cff);
+                background-color: #0078d4;
                 border-radius: 4px;
             }
         """)
+    
+    def toggle_ai_assistant(self):
+        """显示/隐藏 AI 助手"""
+        if self.ai_assistant.isVisible():
+            self.ai_assistant.hide()
+        else:
+            self.ai_assistant.show()
+    
+    def show_about(self):
+        """显示关于对话框"""
+        about_text = """
+<h3>PhysicsLab Pro v1.0</h3>
+<p>物理实验辅助工具</p>
+<hr>
+<p><b>功能模块：</b></p>
+<ul>
+    <li>🔬 <b>光学 AI 实验室</b> - 干涉/衍射条纹分析</li>
+    <li>📊 <b>数据工作台</b> - 数据拟合和不确定度计算</li>
+    <li>🌐 <b>虚拟仿真实验室</b> - 交互式光学仿真</li>
+    <li>🤖 <b>AI 虚拟助教</b> - 基于 DeepSeek API 的智能问答</li>
+</ul>
+<hr>
+<p><b>技术栈：</b></p>
+<ul>
+    <li>🖼️ GUI: PyQt6</li>
+    <li>🖼️ 图像处理: OpenCV, NumPy</li>
+    <li>📈 数据分析: Pandas, SciPy, Matplotlib</li>
+    <li>🤖 深度学习: PyTorch</li>
+    <li>💡 AI: DeepSeek API</li>
+</ul>
+<hr>
+<p>© 2024 PhysicsLab Pro. All rights reserved.</p>
+"""
+        
+        QMessageBox.about(self, "关于 PhysicsLab Pro", about_text)
 
 
 def main():
