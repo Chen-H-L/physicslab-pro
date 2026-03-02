@@ -1,43 +1,22 @@
-"""
-PhysicsLab Pro - 物理实验辅助工具
-主窗口程序，包含选项卡界面和基础布局
-"""
-
 import sys
 import numpy as np
 import cv2
 from PyQt6.QtWidgets import (
-    QApplication, QMainWindow, QTabWidget, QWidget, 
+    QApplication, QMainWindow, QTabWidget, QWidget,
     QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
     QTableWidget, QTableWidgetItem, QLineEdit, QTextEdit,
     QFileDialog, QMessageBox, QProgressBar, QSplitter,
     QFrame, QComboBox, QGroupBox, QSlider, QDoubleSpinBox,
-    QSizePolicy, QDockWidget, QTextBrowser, QScrollArea
+    QSizePolicy, QDockWidget, QTextBrowser, QScrollArea,
+    QRadioButton, QButtonGroup, QHeaderView
 )
 from PyQt6.QtCore import Qt, QPoint, QSize, QThread, pyqtSignal
 from PyQt6.QtGui import QFont, QPixmap, QPainter, QPen, QColor, QImage, QVector2D
-
-# 尝试导入 openai 库
-HAS_OPENAI_LIB = False
-try:
-    from openai import OpenAI
-    HAS_OPENAI_LIB = True
-except ImportError:
-    # 如果 openai 库未安装，在后续使用时提示用户
-    pass
+from openai import OpenAI
 from PyQt6.QtOpenGLWidgets import QOpenGLWidget
 from PyQt6.QtOpenGL import QOpenGLShader, QOpenGLShaderProgram
 from PyQt6.QtOpenGL import QOpenGLBuffer, QOpenGLVertexArrayObject
-
-try:
-    from OpenGL import GL as gl
-except ImportError:
-    # 如果 PyOpenGL 未安装，使用替代方案
-    print("警告: PyOpenGL 未安装，OpenGL 功能可能不可用")
-    gl = None
-
-# Matplotlib 集成
-# 注意：matplotlib 3.5+ 支持 PyQt6，使用 qt5agg 后端即可
+from OpenGL import GL as gl
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 import matplotlib.pyplot as plt
@@ -49,7 +28,8 @@ from algorithms import (
     smooth_signal,
     count_peaks_in_signal,
     auto_fit,
-    calculate_uncertainty
+    calculate_uncertainty,
+    calculate_statistics
 )
 
 
@@ -259,32 +239,69 @@ class ClickableImageLabel(QLabel):
 
 class MatplotlibCanvas(FigureCanvas):
     """Matplotlib 画布，用于嵌入到 PyQt 界面中"""
-    
-    def __init__(self, parent=None, width=5, height=4, dpi=100):
-        # 使用深色主题
-        plt.style.use('dark_background')
-        
+
+    # 配色方案
+    THEMES = {
+        'dark': {
+            'background': '#1e2132',
+            'face': '#1e2132',
+            'axis': '#b0b8c4',
+            'text': '#e0e4eb',
+            'grid': '#3a3f5c',
+            'primary': '#4a90e2',
+            'success': '#2ecc71',
+            'warning': '#f39c12',
+            'danger': '#e74c3c'
+        },
+        'modern': {
+            'background': '#f8f9fa',
+            'face': '#ffffff',
+            'axis': '#495057',
+            'text': '#212529',
+            'grid': '#dee2e6',
+            'primary': '#3498db',
+            'success': '#2ecc71',
+            'warning': '#e67e22',
+            'danger': '#e74c3c',
+            'purple': '#9b59b6'
+        }
+    }
+
+    def __init__(self, parent=None, width=5, height=4, dpi=100, theme='dark'):
         # 设置中文字体支持
         plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'Arial Unicode MS', 'DejaVu Sans']
         plt.rcParams['axes.unicode_minus'] = False  # 解决负号显示问题
-        
-        self.fig = Figure(figsize=(width, height), dpi=dpi, facecolor='#1e2132')
+
+        self.theme_name = theme
+        self.theme = self.THEMES[theme]
+
+        self.fig = Figure(figsize=(width, height), dpi=dpi, facecolor=self.theme['background'])
         super().__init__(self.fig)
         self.setParent(parent)
-        
+
         self.ax = self.fig.add_subplot(111)
-        self.ax.set_facecolor('#1e2132')
-        # 使用更柔和的颜色
-        axis_color = '#b0b8c4'
-        text_color = '#e0e4eb'
-        self.ax.tick_params(colors=axis_color)
-        self.ax.spines['bottom'].set_color(axis_color)
-        self.ax.spines['top'].set_color(axis_color)
-        self.ax.spines['right'].set_color(axis_color)
-        self.ax.spines['left'].set_color(axis_color)
-        self.ax.xaxis.label.set_color(text_color)
-        self.ax.yaxis.label.set_color(text_color)
-        self.ax.title.set_color(text_color)
+        self.ax.set_facecolor(self.theme['face'])
+        self.apply_theme()
+
+    def set_theme(self, theme_name):
+        """切换主题：'dark' 或 'modern'"""
+        if theme_name in self.THEMES:
+            self.theme_name = theme_name
+            self.theme = self.THEMES[theme_name]
+            self.fig.set_facecolor(self.theme['background'])
+            self.ax.set_facecolor(self.theme['face'])
+            self.apply_theme()
+
+    def apply_theme(self):
+        """应用当前主题样式"""
+        self.ax.tick_params(colors=self.theme['axis'])
+        self.ax.spines['bottom'].set_color(self.theme['axis'])
+        self.ax.spines['top'].set_color(self.theme['axis'])
+        self.ax.spines['right'].set_color(self.theme['axis'])
+        self.ax.spines['left'].set_color(self.theme['axis'])
+        self.ax.xaxis.label.set_color(self.theme['text'])
+        self.ax.yaxis.label.set_color(self.theme['text'])
+        self.ax.title.set_color(self.theme['text'])
     
     def plot_intensity_curve(self, distances, intensities, peaks=None, peak_positions=None):
         """绘制亮度分布曲线（静态图像分析）"""
@@ -358,6 +375,178 @@ class MatplotlibCanvas(FigureCanvas):
         self.fig.tight_layout()
         self.draw()
 
+    def plot_boxplot(self, data, title='箱型图', xlabel='数据', ylabel='数值'):
+        """绘制箱型图"""
+        self.ax.clear()
+
+        # 绘制箱型图
+        if isinstance(data, list):
+            data = np.array(data)
+
+        if len(data) == 0:
+            self.ax.text(0.5, 0.5, '无数据', ha='center', va='center',
+                       transform=self.ax.transAxes, color=self.theme['text'])
+        else:
+            box = self.ax.boxplot(data, patch_artist=True, widths=0.5,
+                               boxprops=dict(facecolor=self.theme['primary'], alpha=0.7),
+                               medianprops=dict(color=self.theme['danger'], linewidth=2),
+                               whiskerprops=dict(color=self.theme['axis'], linewidth=1.5),
+                               capprops=dict(color=self.theme['axis'], linewidth=1.5))
+
+            # 添加数据点
+            x = np.random.normal(1, 0.04, size=len(data))
+            self.ax.plot(x, data, 'o', alpha=0.4, color=self.theme['success'],
+                       markersize=6, markeredgecolor=self.theme['axis'])
+
+        self.ax.set_xticks([1])
+        self.ax.set_xticklabels([xlabel])
+        self.ax.set_xlabel(xlabel, color=self.theme['text'])
+        self.ax.set_ylabel(ylabel, color=self.theme['text'])
+        self.ax.set_title(title, color=self.theme['text'])
+        self.ax.grid(True, alpha=0.3, color=self.theme['grid'], linestyle='--')
+
+        self.apply_theme()
+        self.fig.tight_layout()
+        self.draw()
+
+    def plot_line_chart(self, x_data, y_data, title='折线图', xlabel='X', ylabel='Y'):
+        """绘制折线图"""
+        self.ax.clear()
+
+        if isinstance(x_data, list):
+            x_data = np.array(x_data)
+        if isinstance(y_data, list):
+            y_data = np.array(y_data)
+
+        if len(x_data) == 0 or len(y_data) == 0:
+            self.ax.text(0.5, 0.5, '无数据', ha='center', va='center',
+                       transform=self.ax.transAxes, color=self.theme['text'])
+        else:
+            # 绘制折线
+            self.ax.plot(x_data, y_data, 'o-', color=self.theme['primary'],
+                       linewidth=2, markersize=8, markerfacecolor=self.theme['face'],
+                       markeredgecolor=self.theme['primary'], markeredgewidth=2)
+
+            # 添加渐变填充区域
+            self.ax.fill_between(x_data, y_data, alpha=0.2, color=self.theme['primary'])
+
+        self.ax.set_xlabel(xlabel, color=self.theme['text'])
+        self.ax.set_ylabel(ylabel, color=self.theme['text'])
+        self.ax.set_title(title, color=self.theme['text'])
+        self.ax.grid(True, alpha=0.3, color=self.theme['grid'], linestyle='--')
+
+        self.apply_theme()
+        self.fig.tight_layout()
+        self.draw()
+
+    def plot_bar_chart(self, x_data, y_data, title='柱状图', xlabel='X', ylabel='Y'):
+        """绘制柱状图"""
+        self.ax.clear()
+
+        if isinstance(x_data, list):
+            x_data = np.array(x_data)
+        if isinstance(y_data, list):
+            y_data = np.array(y_data)
+
+        if len(x_data) == 0 or len(y_data) == 0:
+            self.ax.text(0.5, 0.5, '无数据', ha='center', va='center',
+                       transform=self.ax.transAxes, color=self.theme['text'])
+        else:
+            # 绘制柱状图
+            bars = self.ax.bar(x_data, y_data, color=self.theme['primary'],
+                              alpha=0.8, edgecolor=self.theme['primary'],
+                              linewidth=1)
+
+            # 为每个柱子添加渐变效果
+            for bar in bars:
+                bar.set_facecolor(self.theme['primary'])
+                bar.set_alpha(0.8)
+
+        self.ax.set_xlabel(xlabel, color=self.theme['text'])
+        self.ax.set_ylabel(ylabel, color=self.theme['text'])
+        self.ax.set_title(title, color=self.theme['text'])
+        self.ax.grid(True, alpha=0.3, color=self.theme['grid'], linestyle='--', axis='y')
+
+        self.apply_theme()
+        self.fig.tight_layout()
+        self.draw()
+
+    def plot_scatter(self, x_data, y_data, title='散点图', xlabel='X', ylabel='Y'):
+        """绘制散点图"""
+        self.ax.clear()
+
+        if isinstance(x_data, list):
+            x_data = np.array(x_data)
+        if isinstance(y_data, list):
+            y_data = np.array(y_data)
+
+        if len(x_data) == 0 or len(y_data) == 0:
+            self.ax.text(0.5, 0.5, '无数据', ha='center', va='center',
+                       transform=self.ax.transAxes, color=self.theme['text'])
+        else:
+            # 绘制散点
+            self.ax.scatter(x_data, y_data, s=80, alpha=0.7,
+                          color=self.theme['primary'], edgecolors=self.theme['face'],
+                          linewidths=1.5)
+
+            # 添加趋势线
+            if len(x_data) > 1 and len(y_data) > 1:
+                z = np.polyfit(x_data, y_data, 1)
+                p = np.poly1d(z)
+                x_trend = np.linspace(np.min(x_data), np.max(x_data), 100)
+                self.ax.plot(x_trend, p(x_trend), '--', color=self.theme['warning'],
+                           linewidth=2, alpha=0.7, label='趋势线')
+
+        self.ax.set_xlabel(xlabel, color=self.theme['text'])
+        self.ax.set_ylabel(ylabel, color=self.theme['text'])
+        self.ax.set_title(title, color=self.theme['text'])
+        self.ax.grid(True, alpha=0.3, color=self.theme['grid'], linestyle='--')
+
+        self.apply_theme()
+        self.fig.tight_layout()
+        self.draw()
+
+    def plot_histogram(self, data, title='直方图', xlabel='数值', ylabel='频数', bins=None):
+        """绘制直方图"""
+        self.ax.clear()
+
+        if isinstance(data, list):
+            data = np.array(data)
+
+        if len(data) == 0:
+            self.ax.text(0.5, 0.5, '无数据', ha='center', va='center',
+                       transform=self.ax.transAxes, color=self.theme['text'])
+        else:
+            # 自动确定分箱数量
+            if bins is None:
+                bins = min(30, max(5, int(len(data) ** 0.5)))
+
+            # 绘制直方图
+            n, bins, patches = self.ax.hist(data, bins=bins, alpha=0.7,
+                                         color=self.theme['primary'],
+                                         edgecolor=self.theme['axis'],
+                                         linewidth=1)
+
+            # 添加均值线
+            mean = np.mean(data)
+            self.ax.axvline(mean, color=self.theme['danger'], linestyle='--',
+                           linewidth=2, label=f'均值 = {mean:.2f}')
+
+            # 添加标准差范围
+            std = np.std(data)
+            self.ax.axvspan(mean - std, mean + std, alpha=0.2,
+                            color=self.theme['success'], label='±1σ')
+
+        self.ax.set_xlabel(xlabel, color=self.theme['text'])
+        self.ax.set_ylabel(ylabel, color=self.theme['text'])
+        self.ax.set_title(title, color=self.theme['text'])
+        self.ax.grid(True, alpha=0.3, color=self.theme['grid'], linestyle='--', axis='y')
+        self.ax.legend(loc='best', framealpha=0.9)
+
+        self.apply_theme()
+        self.fig.tight_layout()
+        self.draw()
+
 
 class LLMWorker(QThread):
     """LLM 对话工作线程 - 调用 DeepSeek API"""
@@ -383,11 +572,6 @@ class LLMWorker(QThread):
     def run(self):
         """执行 LLM 对话"""
         try:
-            # 检查是否安装了 openai 库
-            if not HAS_OPENAI_LIB:
-                self.error_occurred.emit("❌ openai 库未安装，请运行: pip install openai")
-                return
-            
             # 初始化 OpenAI 客户端（使用 DeepSeek 的 API 端点）
             client = OpenAI(
                 api_key=self.api_key,
@@ -733,16 +917,6 @@ class AIAssistantDock(QDockWidget):
             )
             return
         
-        # 检查是否已安装 openai 库
-        if not HAS_OPENAI_LIB:
-            QMessageBox.warning(
-                self, 
-                "❌ 缺少依赖库",
-                "openai 库未安装！\n\n"
-                "请在终端运行以下命令安装：\n\n"
-                "pip install openai"
-            )
-            return
         
         # 禁用输入框和按钮
         self.input_field.setEnabled(False)
@@ -866,7 +1040,7 @@ class OpticsLabTab(QWidget):
         left_layout.addWidget(experiment_label)
         
         self.experiment_combo = QComboBox()
-        self.experiment_combo.addItems(["分析图片", "分析视频"])
+        self.experiment_combo.addItems(["分析图片", "分析视频", "虚拟仿真"])
         self.experiment_combo.currentTextChanged.connect(self.on_experiment_changed)
         left_layout.addWidget(self.experiment_combo)
         
@@ -911,6 +1085,153 @@ class OpticsLabTab(QWidget):
         self.video_control_group.setLayout(video_control_layout)
         left_layout.addWidget(self.video_control_group)
         
+        # 虚拟仿真控制组
+        self.simulation_control_group = QGroupBox("虚拟仿真控制")
+        simulation_control_layout = QVBoxLayout()
+        
+        # 仿真实验类型选择
+        sim_experiment_label = QLabel("仿真实验:")
+        simulation_control_layout.addWidget(sim_experiment_label)
+        
+        self.sim_experiment_combo = QComboBox()
+        self.sim_experiment_combo.addItems(["牛顿环实验", "劈尖干涉", "双缝干涉"])
+        self.sim_experiment_combo.currentTextChanged.connect(self.on_sim_experiment_changed)
+        simulation_control_layout.addWidget(self.sim_experiment_combo)
+        
+        # 波长参数
+        wavelength_layout = QHBoxLayout()
+        wavelength_label = QLabel("波长 (nm):")
+        wavelength_label.setMinimumWidth(100)
+        wavelength_layout.addWidget(wavelength_label)
+        
+        self.wavelength_spinbox = QDoubleSpinBox()
+        self.wavelength_spinbox.setMinimum(400.0)
+        self.wavelength_spinbox.setMaximum(700.0)
+        self.wavelength_spinbox.setValue(632.8)
+        self.wavelength_spinbox.setDecimals(1)
+        self.wavelength_spinbox.setSuffix(" nm")
+        self.wavelength_spinbox.valueChanged.connect(self.on_simulation_parameter_changed)
+        wavelength_layout.addWidget(self.wavelength_spinbox)
+        
+        simulation_control_layout.addLayout(wavelength_layout)
+        
+        # 牛顿环参数：曲率半径
+        self.radius_layout = QHBoxLayout()
+        radius_label = QLabel("曲率半径 (mm):")
+        radius_label.setMinimumWidth(100)
+        self.radius_layout.addWidget(radius_label)
+        
+        self.radius_spinbox = QDoubleSpinBox()
+        self.radius_spinbox.setMinimum(500.0)
+        self.radius_spinbox.setMaximum(5000.0)
+        self.radius_spinbox.setValue(1000.0)
+        self.radius_spinbox.setDecimals(1)
+        self.radius_spinbox.setSuffix(" mm")
+        self.radius_spinbox.valueChanged.connect(self.on_simulation_parameter_changed)
+        self.radius_layout.addWidget(self.radius_spinbox)
+        
+        simulation_control_layout.addLayout(self.radius_layout)
+        
+        # 牛顿环和劈尖共用：间隙距离
+        self.gap_layout = QHBoxLayout()
+        gap_label = QLabel("间隙距离 (nm):")
+        gap_label.setMinimumWidth(100)
+        self.gap_layout.addWidget(gap_label)
+        
+        self.gap_spinbox = QDoubleSpinBox()
+        self.gap_spinbox.setMinimum(0.0)
+        self.gap_spinbox.setMaximum(2000.0)
+        self.gap_spinbox.setValue(0.0)
+        self.gap_spinbox.setDecimals(1)
+        self.gap_spinbox.setSuffix(" nm")
+        self.gap_spinbox.valueChanged.connect(self.on_simulation_parameter_changed)
+        self.gap_layout.addWidget(self.gap_spinbox)
+        
+        simulation_control_layout.addLayout(self.gap_layout)
+        
+        # 视野缩放
+        self.scale_layout = QHBoxLayout()
+        scale_label = QLabel("视野范围 (mm):")
+        scale_label.setMinimumWidth(100)
+        self.scale_layout.addWidget(scale_label)
+        
+        self.scale_spinbox = QDoubleSpinBox()
+        self.scale_spinbox.setMinimum(0.1)
+        self.scale_spinbox.setMaximum(100.0)
+        self.scale_spinbox.setValue(5.0)
+        self.scale_spinbox.setDecimals(2)
+        self.scale_spinbox.setSuffix(" mm")
+        self.scale_spinbox.valueChanged.connect(self.on_simulation_parameter_changed)
+        self.scale_layout.addWidget(self.scale_spinbox)
+        
+        simulation_control_layout.addLayout(self.scale_layout)
+        
+        # 劈尖干涉参数：夹角
+        self.angle_layout = QHBoxLayout()
+        angle_label = QLabel("劈尖夹角 (度):")
+        angle_label.setMinimumWidth(100)
+        self.angle_layout.addWidget(angle_label)
+        
+        self.angle_spinbox = QDoubleSpinBox()
+        self.angle_spinbox.setMinimum(0.01)
+        self.angle_spinbox.setMaximum(10.0)
+        self.angle_spinbox.setValue(0.057)
+        self.angle_spinbox.setDecimals(3)
+        self.angle_spinbox.setSuffix(" °")
+        self.angle_spinbox.valueChanged.connect(self.on_simulation_parameter_changed)
+        self.angle_layout.addWidget(self.angle_spinbox)
+        
+        simulation_control_layout.addLayout(self.angle_layout)
+        
+        # 双缝干涉参数：缝宽
+        self.slit_width_layout = QHBoxLayout()
+        slit_width_label = QLabel("缝宽 (μm):")
+        slit_width_label.setMinimumWidth(100)
+        self.slit_width_layout.addWidget(slit_width_label)
+        
+        self.slit_width_spinbox = QDoubleSpinBox()
+        self.slit_width_spinbox.setMinimum(1.0)
+        self.slit_width_spinbox.setMaximum(100.0)
+        self.slit_width_spinbox.setValue(10.0)
+        self.slit_width_spinbox.setDecimals(1)
+        self.slit_width_spinbox.setSuffix(" μm")
+        self.slit_width_spinbox.valueChanged.connect(self.on_simulation_parameter_changed)
+        self.slit_width_layout.addWidget(self.slit_width_spinbox)
+        
+        simulation_control_layout.addLayout(self.slit_width_layout)
+        
+        # 双缝干涉参数：缝间距
+        self.slit_spacing_layout = QHBoxLayout()
+        slit_spacing_label = QLabel("缝间距 (μm):")
+        slit_spacing_label.setMinimumWidth(100)
+        self.slit_spacing_layout.addWidget(slit_spacing_label)
+        
+        self.slit_spacing_spinbox = QDoubleSpinBox()
+        self.slit_spacing_spinbox.setMinimum(10.0)
+        self.slit_spacing_spinbox.setMaximum(200.0)
+        self.slit_spacing_spinbox.setValue(50.0)
+        self.slit_spacing_spinbox.setDecimals(1)
+        self.slit_spacing_spinbox.setSuffix(" μm")
+        self.slit_spacing_spinbox.valueChanged.connect(self.on_simulation_parameter_changed)
+        self.slit_spacing_layout.addWidget(self.slit_spacing_spinbox)
+        
+        simulation_control_layout.addLayout(self.slit_spacing_layout)
+        
+        self.simulation_control_group.setLayout(simulation_control_layout)
+        left_layout.addWidget(self.simulation_control_group)
+        
+        # 分析结果文本框（左下角位置）
+        result_label = QLabel("分析结果:")
+        result_label.setFont(QFont("Arial", 10, QFont.Weight.Bold))
+        left_layout.addWidget(result_label)
+        
+        self.result_text = QTextEdit()
+        self.result_text.setMinimumHeight(120)
+        self.result_text.setMaximumHeight(180)
+        self.result_text.setReadOnly(True)
+        self.result_text.setPlaceholderText("分析结果将显示在这里...")
+        left_layout.addWidget(self.result_text)
+        
         left_layout.addStretch()
         
         # 设置左侧面板样式
@@ -948,27 +1269,21 @@ class OpticsLabTab(QWidget):
         
         # 图像/视频显示区域
         self.image_label = ClickableImageLabel(self)
-        self.image_label.setMinimumSize(600, 400)
-        self.image_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.image_label.setFixedSize(500, 350)
+        self.image_label.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         display_frame_layout.addWidget(self.image_label, alignment=Qt.AlignmentFlag.AlignCenter)
         
         right_layout.addWidget(display_frame, alignment=Qt.AlignmentFlag.AlignCenter)
         
-        # 分析结果区域
+        # 分析结果区域 - 只保留图表
         result_group = QGroupBox("分析结果")
         result_layout = QVBoxLayout()
         
-        # 嵌入 Matplotlib 画布
+        # Matplotlib 画布
         self.plot_canvas = MatplotlibCanvas(self, width=5, height=4, dpi=100)
         self.plot_canvas.setMinimumSize(400, 300)
+        self.plot_canvas.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         result_layout.addWidget(self.plot_canvas)
-        
-        # 结果显示文本
-        self.result_text = QTextEdit()
-        self.result_text.setMaximumHeight(120)
-        self.result_text.setReadOnly(True)
-        self.result_text.setPlaceholderText("分析结果将显示在这里...")
-        result_layout.addWidget(self.result_text)
         
         result_group.setLayout(result_layout)
         right_layout.addWidget(result_group)
@@ -987,8 +1302,14 @@ class OpticsLabTab(QWidget):
         main_layout.addWidget(splitter)
         self.setLayout(main_layout)
         
+        # 初始化 OpenGL 仿真组件
+        self.simulation_widget = SimulationWidget()
+        self.simulation_widget.setFixedSize(500, 350)
+        self.simulation_widget.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        
         # 初始化：显示图片分析控件
         self.on_experiment_changed("分析图片")
+        self.on_sim_experiment_changed("牛顿环实验")
     
     def on_experiment_changed(self, text):
         """实验类型改变时的回调"""
@@ -1003,8 +1324,25 @@ class OpticsLabTab(QWidget):
                 item = self.video_control_group.layout().itemAt(i)
                 if item.widget():
                     item.widget().setVisible(False)
+            # 隐藏仿真控制控件
+            for i in range(self.simulation_control_group.layout().count()):
+                item = self.simulation_control_group.layout().itemAt(i)
+                if item.widget():
+                    item.widget().setVisible(False)
             # 设置图像标签为两点模式
             self.image_label.set_mode('two_points')
+            # 显示图像标签，隐藏仿真控件
+            self.image_label.show()
+            self.simulation_widget.hide()
+            # 确保图像标签在布局中
+            display_frame = self.image_label.parent()
+            display_frame_layout = display_frame.layout()
+            if self.image_label not in [display_frame_layout.itemAt(i).widget() for i in range(display_frame_layout.count())]:
+                display_frame_layout.addWidget(self.image_label, alignment=Qt.AlignmentFlag.AlignCenter)
+            # 清空之前的结果
+            self.result_text.clear()
+            self.plot_canvas.ax.clear()
+            self.plot_canvas.draw()
         elif text == "分析视频":
             # 显示视频分析控件
             for i in range(self.video_control_group.layout().count()):
@@ -1016,8 +1354,137 @@ class OpticsLabTab(QWidget):
                 item = self.image_control_group.layout().itemAt(i)
                 if item.widget():
                     item.widget().setVisible(False)
+            # 隐藏仿真控制控件
+            for i in range(self.simulation_control_group.layout().count()):
+                item = self.simulation_control_group.layout().itemAt(i)
+                if item.widget():
+                    item.widget().setVisible(False)
             # 设置图像标签为中心点模式
             self.image_label.set_mode('center_point')
+            # 显示图像标签，隐藏仿真控件
+            self.image_label.show()
+            self.simulation_widget.hide()
+            # 确保图像标签在布局中
+            display_frame = self.image_label.parent()
+            display_frame_layout = display_frame.layout()
+            if self.image_label not in [display_frame_layout.itemAt(i).widget() for i in range(display_frame_layout.count())]:
+                display_frame_layout.addWidget(self.image_label, alignment=Qt.AlignmentFlag.AlignCenter)
+            # 清空之前的结果
+            self.result_text.clear()
+            self.plot_canvas.ax.clear()
+            self.plot_canvas.draw()
+        elif text == "虚拟仿真":
+            # 隐藏图片分析控件
+            for i in range(self.image_control_group.layout().count()):
+                item = self.image_control_group.layout().itemAt(i)
+                if item.widget():
+                    item.widget().setVisible(False)
+            # 隐藏视频分析控件
+            for i in range(self.video_control_group.layout().count()):
+                item = self.video_control_group.layout().itemAt(i)
+                if item.widget():
+                    item.widget().setVisible(False)
+            # 显示仿真控制控件
+            for i in range(self.simulation_control_group.layout().count()):
+                item = self.simulation_control_group.layout().itemAt(i)
+                if item.widget():
+                    item.widget().setVisible(True)
+            # 隐藏图像标签，显示仿真控件
+            self.image_label.hide()
+            # 在显示区域添加仿真控件
+            display_frame = self.image_label.parent()
+            display_frame_layout = display_frame.layout()
+            if self.simulation_widget not in [display_frame_layout.itemAt(i).widget() for i in range(display_frame_layout.count())]:
+                display_frame_layout.addWidget(self.simulation_widget, alignment=Qt.AlignmentFlag.AlignCenter)
+            self.simulation_widget.show()
+            # 清空之前的结果
+            self.result_text.clear()
+            self.plot_canvas.ax.clear()
+            self.plot_canvas.draw()
+            # 更新仿真参数
+            self.on_simulation_parameter_changed()
+    
+    def on_sim_experiment_changed(self, text):
+        """仿真实验类型改变时的回调"""
+        # 根据仿真实验类型显示/隐藏相应的参数控件
+        if text == "牛顿环实验":
+            # 显示：波长、曲率半径、间隙距离、视野范围
+            for i in range(self.radius_layout.count()):
+                self.radius_layout.itemAt(i).widget().setVisible(True)
+            for i in range(self.gap_layout.count()):
+                self.gap_layout.itemAt(i).widget().setVisible(True)
+            for i in range(self.scale_layout.count()):
+                self.scale_layout.itemAt(i).widget().setVisible(True)
+            # 隐藏：夹角、缝宽、缝间距
+            for i in range(self.angle_layout.count()):
+                self.angle_layout.itemAt(i).widget().setVisible(False)
+            for i in range(self.slit_width_layout.count()):
+                self.slit_width_layout.itemAt(i).widget().setVisible(False)
+            for i in range(self.slit_spacing_layout.count()):
+                self.slit_spacing_layout.itemAt(i).widget().setVisible(False)
+        elif text == "劈尖干涉":
+            # 显示：波长、夹角、间隙距离、视野范围
+            for i in range(self.angle_layout.count()):
+                self.angle_layout.itemAt(i).widget().setVisible(True)
+            for i in range(self.gap_layout.count()):
+                self.gap_layout.itemAt(i).widget().setVisible(True)
+            for i in range(self.scale_layout.count()):
+                self.scale_layout.itemAt(i).widget().setVisible(True)
+            # 隐藏：曲率半径、缝宽、缝间距
+            for i in range(self.radius_layout.count()):
+                self.radius_layout.itemAt(i).widget().setVisible(False)
+            for i in range(self.slit_width_layout.count()):
+                self.slit_width_layout.itemAt(i).widget().setVisible(False)
+            for i in range(self.slit_spacing_layout.count()):
+                self.slit_spacing_layout.itemAt(i).widget().setVisible(False)
+        elif text == "双缝干涉":
+            # 显示：波长、缝宽、缝间距
+            for i in range(self.slit_width_layout.count()):
+                self.slit_width_layout.itemAt(i).widget().setVisible(True)
+            for i in range(self.slit_spacing_layout.count()):
+                self.slit_spacing_layout.itemAt(i).widget().setVisible(True)
+            # 隐藏：曲率半径、间隙距离、夹角、视野范围
+            for i in range(self.radius_layout.count()):
+                self.radius_layout.itemAt(i).widget().setVisible(False)
+            for i in range(self.gap_layout.count()):
+                self.gap_layout.itemAt(i).widget().setVisible(False)
+            for i in range(self.angle_layout.count()):
+                self.angle_layout.itemAt(i).widget().setVisible(False)
+            for i in range(self.scale_layout.count()):
+                self.scale_layout.itemAt(i).widget().setVisible(False)
+        # 更新仿真参数
+        self.on_simulation_parameter_changed()
+    
+    def on_simulation_parameter_changed(self):
+        """仿真参数改变时的回调"""
+        wavelength = self.wavelength_spinbox.value()
+        current_text = self.sim_experiment_combo.currentText()
+        
+        # 根据仿真实验类型更新参数
+        if current_text == "牛顿环实验":
+            radius = self.radius_spinbox.value()
+            gap_distance = self.gap_spinbox.value()
+            scale = self.scale_spinbox.value()
+            self.simulation_widget.update_parameters(
+                0, wavelength, scale=scale,
+                radius=radius, gap_distance=gap_distance
+            )
+        elif current_text == "劈尖干涉":
+            angle_degrees = self.angle_spinbox.value()
+            angle_radians = angle_degrees * 3.14159265359 / 180.0  # 度转弧度
+            gap_distance = self.gap_spinbox.value()
+            scale = self.scale_spinbox.value()
+            self.simulation_widget.update_parameters(
+                1, wavelength, scale=scale,
+                angle=angle_radians, gap_distance=gap_distance
+            )
+        elif current_text == "双缝干涉":
+            slit_width = self.slit_width_spinbox.value()
+            slit_spacing = self.slit_spacing_spinbox.value()
+            self.simulation_widget.update_parameters(
+                2, wavelength,
+                slit_width=slit_width, slit_spacing=slit_spacing
+            )
     
     def on_load_image(self):
         """加载图片按钮点击事件"""
@@ -1353,122 +1820,388 @@ class OpticsLabTab(QWidget):
 
 class DataWorkstationTab(QWidget):
     """页面 2: 数据工作台 (Data Workstation)"""
-    
+
     def __init__(self):
         super().__init__()
+        self.data_mode = 'single'  # 'single' 或 'double'
+        self.chart_type = 'scatter'  # 默认图表类型
+        self._update_timer = None  # 初始化定时器实例变量
         self.init_ui()
-    
+
     def init_ui(self):
-        """初始化界面布局：上半部分数据输入，下半部分可视化"""
-        main_layout = QVBoxLayout()
-        
-        # 上半部分：数据输入区域
-        input_section = QWidget()
-        input_layout = QVBoxLayout()
-        
+        """初始化界面布局：左右分屏"""
+        main_layout = QHBoxLayout()
+
+        # 创建 QSplitter 进行左右分屏
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+
+        # 左侧：数据输入和统计结果显示
+        left_panel = QFrame()
+        left_layout = QVBoxLayout()
+        left_panel.setLayout(left_layout)
+
         # 标题
-        input_title = QLabel("数据输入")
+        input_title = QLabel("📊 数据输入")
         input_title.setFont(QFont("Arial", 12, QFont.Weight.Bold))
-        input_layout.addWidget(input_title)
-        
+        left_layout.addWidget(input_title)
+
+        # 数据输入模式选择
+        mode_layout = QHBoxLayout()
+        mode_label = QLabel("输入模式：")
+        self.btn_single_mode = QRadioButton("单列数据")
+        self.btn_single_mode.setChecked(True)
+        self.btn_double_mode = QRadioButton("双列数据 (X, Y)")
+        self.btn_single_mode.toggled.connect(self.on_mode_changed)
+        self.btn_double_mode.toggled.connect(self.on_mode_changed)
+
+        mode_layout.addWidget(mode_label)
+        mode_layout.addWidget(self.btn_single_mode)
+        mode_layout.addWidget(self.btn_double_mode)
+        mode_layout.addStretch()
+        left_layout.addLayout(mode_layout)
+
+        left_layout.addSpacing(10)
+
         # 表格控件用于手动输入数据
         self.data_table = QTableWidget()
         self.data_table.setColumnCount(2)
         self.data_table.setHorizontalHeaderLabels(["X", "Y"])
         self.data_table.setMinimumHeight(200)
-        
-        # 设置表格为可编辑
+        self.data_table.setMaximumHeight(250)
+
+        # 设置表格样式
         self.data_table.setEditTriggers(QTableWidget.EditTrigger.AllEditTriggers)
+        self.data_table.horizontalHeader().setStretchLastSection(True)
         
-        # 添加初始行，方便用户输入
-        self.data_table.setRowCount(10)
-        for i in range(10):
-            # 创建可编辑的单元格
+        # 为表格添加明确的样式，确保字体颜色和背景颜色有足够的对比度
+        self.data_table.setStyleSheet("""
+            QTableWidget {
+                background-color: #ffffff;
+                color: #333333;
+                border: 2px solid #d9d9d9;
+                border-radius: 6px;
+                gridline-color: #d9d9d9;
+                font-size: 12px;
+            }
+            QTableWidget::item {
+                padding: 4px;
+                border: none;
+                color: #333333;
+                background-color: #ffffff;
+            }
+            QTableWidget::item:selected {
+                background-color: #0078d4;
+                color: #ffffff;
+            }
+            QHeaderView::section {
+                background-color: #f5f7fa;
+                color: #333333;
+                padding: 8px;
+                border: 1px solid #d9d9d9;
+                font-weight: 600;
+                font-size: 12px;
+            }
+        """)
+
+        # 添加初始行
+        self.data_table.setRowCount(15)
+        for i in range(15):
             x_item = QTableWidgetItem("")
             y_item = QTableWidgetItem("")
             self.data_table.setItem(i, 0, x_item)
             self.data_table.setItem(i, 1, y_item)
-        
-        # 设置列宽
-        self.data_table.setColumnWidth(0, 200)
-        self.data_table.setColumnWidth(1, 200)
-        
-        input_layout.addWidget(self.data_table)
-        
+
+        left_layout.addWidget(self.data_table)
+
+        # 连接单元格变化信号
+        self.data_table.cellChanged.connect(self.on_cell_changed)
+
         # 按钮组
         button_layout = QHBoxLayout()
-        self.btn_import_csv = QPushButton("导入 CSV")
-        self.btn_start_fit = QPushButton("开始拟合")
-        self.btn_calculate_uncertainty = QPushButton("计算不确定度")
-        
+        self.btn_import_csv = QPushButton("📁 导入 CSV")
+        self.btn_clear = QPushButton("🗑️ 清空数据")
+
         button_layout.addWidget(self.btn_import_csv)
-        button_layout.addWidget(self.btn_start_fit)
-        button_layout.addWidget(self.btn_calculate_uncertainty)
-        input_layout.addLayout(button_layout)
-        
-        # 不确定度计算输入框
-        uncertainty_label = QLabel("不确定度计算（输入逗号分隔的数字）：")
-        input_layout.addWidget(uncertainty_label)
-        self.uncertainty_input = QLineEdit()
-        self.uncertainty_input.setPlaceholderText("例如: 1.23, 1.25, 1.24, 1.26, 1.22")
-        input_layout.addWidget(self.uncertainty_input)
-        
-        input_section.setLayout(input_layout)
-        
-        # 下半部分：可视化绘图区域
-        plot_section = QWidget()
-        plot_layout = QVBoxLayout()
-        
-        # 标题
-        plot_title = QLabel("可视化结果")
-        plot_title.setFont(QFont("Arial", 12, QFont.Weight.Bold))
-        plot_layout.addWidget(plot_title)
-        
-        # 嵌入 Matplotlib 画布
-        self.plot_canvas = MatplotlibCanvas(self, width=8, height=4, dpi=100)
-        self.plot_canvas.setMinimumSize(800, 400)
-        plot_layout.addWidget(self.plot_canvas)
-        
-        # 结果显示文本
-        self.result_text = QTextEdit()
-        self.result_text.setMaximumHeight(150)
-        self.result_text.setReadOnly(True)
-        plot_layout.addWidget(self.result_text)
-        
-        plot_section.setLayout(plot_layout)
-        
-        # 将上下两部分添加到主布局
-        main_layout.addWidget(input_section, 1)
-        main_layout.addWidget(plot_section, 1)
-        
+        button_layout.addWidget(self.btn_clear)
+        left_layout.addLayout(button_layout)
+
+        left_layout.addSpacing(15)
+
+        # 统计结果显示区
+        stats_group = QGroupBox("📈 统计结果")
+        stats_group.setStyleSheet("""
+            QGroupBox {
+                font-weight: bold;
+                border: 1px solid #bdc3c7;
+                border-radius: 5px;
+                margin-top: 10px;
+                padding-top: 10px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 5px 0 5px;
+            }
+        """)
+        stats_layout = QVBoxLayout()
+
+        self.stats_label = QLabel("输入数据后自动计算...")
+        self.stats_label.setFont(QFont("Arial", 9))
+        self.stats_label.setStyleSheet("color: #6c757d; line-height: 1.6;")
+        self.stats_label.setWordWrap(True)
+        stats_layout.addWidget(self.stats_label)
+
+        stats_group.setLayout(stats_layout)
+        left_layout.addWidget(stats_group)
+
+        left_layout.addStretch()
+
+        # 设置左侧面板样式
+        left_panel.setFrameShape(QFrame.Shape.StyledPanel)
+        left_panel.setMinimumWidth(350)
+        left_panel.setMaximumWidth(400)
+        left_panel.setStyleSheet("""
+            QFrame {
+                background-color: #f8f9fa;
+                border: 1px solid #dee2e6;
+                border-radius: 8px;
+            }
+        """)
+
+        # 右侧：绘图区域
+        right_panel = QFrame()
+        right_layout = QVBoxLayout()
+        right_panel.setLayout(right_layout)
+
+        # 图表类型选择
+        chart_title = QLabel("📊 图表类型")
+        chart_title.setFont(QFont("Arial", 11, QFont.Weight.Bold))
+        right_layout.addWidget(chart_title)
+
+        chart_type_layout = QHBoxLayout()
+        chart_type_layout.setSpacing(15)
+
+        self.btn_chart_boxplot = QPushButton("箱型图")
+        self.btn_chart_line = QPushButton("折线图")
+        self.btn_chart_bar = QPushButton("柱状图")
+        self.btn_chart_scatter = QPushButton("散点图")
+        self.btn_chart_histogram = QPushButton("直方图")
+
+        # 设置按钮样式
+        for btn in [self.btn_chart_boxplot, self.btn_chart_line, self.btn_chart_bar,
+                   self.btn_chart_scatter, self.btn_chart_histogram]:
+            btn.setMinimumHeight(35)
+            btn.setCheckable(True)
+            btn.clicked.connect(self.on_chart_type_changed)
+            btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #ffffff;
+                    color: #495057;
+                    border: 1px solid #bdc3c7;
+                    border-radius: 5px;
+                    padding: 5px 15px;
+                    font-size: 11px;
+                }
+                QPushButton:hover {
+                    background-color: #e9ecef;
+                }
+                QPushButton:checked {
+                    background-color: #3498db;
+                    color: #ffffff;
+                    border: 1px solid #3498db;
+                }
+            """)
+
+        # 默认选中散点图
+        self.btn_chart_scatter.setChecked(True)
+
+        chart_type_layout.addWidget(self.btn_chart_boxplot)
+        chart_type_layout.addWidget(self.btn_chart_line)
+        chart_type_layout.addWidget(self.btn_chart_bar)
+        chart_type_layout.addWidget(self.btn_chart_scatter)
+        chart_type_layout.addWidget(self.btn_chart_histogram)
+        chart_type_layout.addStretch()
+
+        right_layout.addLayout(chart_type_layout)
+        right_layout.addSpacing(10)
+
+        # Matplotlib 画布（使用现代清新风）
+        self.plot_canvas = MatplotlibCanvas(self, width=8, height=5, dpi=100, theme='modern')
+        self.plot_canvas.setMinimumSize(600, 400)
+        right_layout.addWidget(self.plot_canvas)
+
+        # 设置右侧面板样式
+        right_panel.setFrameShape(QFrame.Shape.StyledPanel)
+        right_panel.setStyleSheet("""
+            QFrame {
+                background-color: #ffffff;
+                border: 1px solid #dee2e6;
+                border-radius: 8px;
+            }
+        """)
+
+        # 添加到 Splitter
+        splitter.addWidget(left_panel)
+        splitter.addWidget(right_panel)
+        splitter.setStretchFactor(0, 0)
+        splitter.setStretchFactor(1, 1)
+        splitter.setSizes([400, 600])
+
+        main_layout.addWidget(splitter)
         self.setLayout(main_layout)
-        
-        # 连接信号（功能逻辑后续实现）
+
+        # 连接信号
         self.btn_import_csv.clicked.connect(self.on_import_csv)
-        self.btn_start_fit.clicked.connect(self.on_start_fit)
-        self.btn_calculate_uncertainty.clicked.connect(self.on_calculate_uncertainty)
-    
+        self.btn_clear.clicked.connect(self.on_clear_data)
+
+    def on_mode_changed(self):
+        """数据输入模式切换"""
+        if self.btn_single_mode.isChecked():
+            self.data_mode = 'single'
+            self.data_table.setHorizontalHeaderLabels(["数值 (Y)"])
+            self.data_table.setColumnHidden(0, True)
+        else:
+            self.data_mode = 'double'
+            self.data_table.setHorizontalHeaderLabels(["X", "Y"])
+            self.data_table.setColumnHidden(0, False)
+
+        self.update_statistics()
+        self.update_chart()
+
+    def on_cell_changed(self, row, column):
+        """单元格内容变化时触发"""
+        from PyQt6.QtCore import QTimer
+        if self._update_timer is not None:
+            self._update_timer.stop()
+        self._update_timer = QTimer.singleShot(300, self._delayed_update)
+
+    def _delayed_update(self):
+        """延迟更新统计和图表"""
+        self.update_statistics()
+        self.update_chart()
+
+    def on_chart_type_changed(self):
+        """图表类型切换"""
+        sender = self.sender()
+        for btn in [self.btn_chart_boxplot, self.btn_chart_line, self.btn_chart_bar,
+                   self.btn_chart_scatter, self.btn_chart_histogram]:
+            btn.setChecked(False)
+        sender.setChecked(True)
+
+        if sender == self.btn_chart_boxplot:
+            self.chart_type = 'boxplot'
+        elif sender == self.btn_chart_line:
+            self.chart_type = 'line'
+        elif sender == self.btn_chart_bar:
+            self.chart_type = 'bar'
+        elif sender == self.btn_chart_scatter:
+            self.chart_type = 'scatter'
+        elif sender == self.btn_chart_histogram:
+            self.chart_type = 'histogram'
+
+        self.update_chart()
+
     def get_data_from_table(self):
-        """从表格中读取 X, Y 数据"""
+        """从表格中读取数据，支持单列和双列模式"""
         x_data = []
         y_data = []
-        
+
         row_count = self.data_table.rowCount()
         for i in range(row_count):
-            x_item = self.data_table.item(i, 0)
             y_item = self.data_table.item(i, 1)
-            
-            if x_item is not None and y_item is not None:
-                try:
-                    x_val = float(x_item.text())
-                    y_val = float(y_item.text())
-                    x_data.append(x_val)
-                    y_data.append(y_val)
-                except ValueError:
-                    continue  # 跳过无效的行
-        
+
+            if self.data_mode == 'double':
+                x_item = self.data_table.item(i, 0)
+                if x_item is not None and y_item is not None:
+                    try:
+                        x_val = float(x_item.text())
+                        y_val = float(y_item.text())
+                        x_data.append(x_val)
+                        y_data.append(y_val)
+                    except ValueError:
+                        continue
+            else:  # single 模式
+                if y_item is not None:
+                    try:
+                        y_val = float(y_item.text())
+                        x_data.append(i + 1)  # 序号作为 X
+                        y_data.append(y_val)
+                    except ValueError:
+                        continue
+
         return np.array(x_data), np.array(y_data)
-    
+
+    def update_statistics(self):
+        """更新统计结果"""
+        x_data, y_data = self.get_data_from_table()
+
+        if len(y_data) == 0:
+            self.stats_label.setText("暂无数据")
+            return
+
+        # 计算统计量
+        result = calculate_statistics(y_data)
+
+        # 构建统计显示文本
+        stats_text = f"""📊 统计结果
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+数据点数量: {result['count']}
+平均值: {result['mean']:.6f}
+标准差: {result['std_dev']:.6f}
+标准误差: {result['standard_error']:.6f}
+方差: {result['variance']:.6f}
+最小值: {result['min']:.6f}
+最大值: {result['max']:.6f}
+中位数: {result['median']:.6f}
+极差: {result['range']:.6f}
+"""
+
+        if result['outliers']:
+            stats_text += f"\n⚠️  检测到 {len(result['outliers'])} 个异常值:\n"
+            for idx, val, z_score in result['outliers']:
+                stats_text += f"  • 第 {idx + 1} 个数据: {val:.6f} (Z-score = {z_score:.2f})\n"
+            stats_text += "\n建议：考虑剔除这些异常值后重新计算。\n"
+        else:
+            stats_text += "\n✓ 未检测到异常值。\n"
+
+        stats_text += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+        self.stats_label.setText(stats_text)
+
+    def update_chart(self):
+        """根据当前数据和图表类型更新图表"""
+        x_data, y_data = self.get_data_from_table()
+
+        if len(y_data) == 0:
+            self.plot_canvas.ax.clear()
+            self.plot_canvas.ax.text(0.5, 0.5, '请输入数据后显示图表',
+                                   ha='center', va='center',
+                                   transform=self.plot_canvas.ax.transAxes,
+                                   color=self.plot_canvas.theme['text'])
+            self.plot_canvas.draw()
+            return
+
+        # 根据图表类型绘制
+        if self.chart_type == 'boxplot':
+            xlabel = '数据' if self.data_mode == 'single' else 'Y'
+            self.plot_canvas.plot_boxplot(y_data, title='箱型图', xlabel=xlabel, ylabel='数值')
+        elif self.chart_type == 'line':
+            xlabel = '序号' if self.data_mode == 'single' else 'X'
+            ylabel = '数值 (Y)' if self.data_mode == 'single' else 'Y'
+            self.plot_canvas.plot_line_chart(x_data, y_data, title='折线图', xlabel=xlabel, ylabel=ylabel)
+        elif self.chart_type == 'bar':
+            xlabel = '序号' if self.data_mode == 'single' else 'X'
+            ylabel = '数值 (Y)' if self.data_mode == 'single' else 'Y'
+            self.plot_canvas.plot_bar_chart(x_data, y_data, title='柱状图', xlabel=xlabel, ylabel=ylabel)
+        elif self.chart_type == 'scatter':
+            xlabel = '序号' if self.data_mode == 'single' else 'X'
+            ylabel = '数值 (Y)' if self.data_mode == 'single' else 'Y'
+            self.plot_canvas.plot_scatter(x_data, y_data, title='散点图', xlabel=xlabel, ylabel=ylabel)
+        elif self.chart_type == 'histogram':
+            xlabel = '数值'
+            ylabel = '频数'
+            self.plot_canvas.plot_histogram(y_data, title='直方图', xlabel=xlabel, ylabel=ylabel)
+
     def on_import_csv(self):
         """导入 CSV 按钮点击事件"""
         try:
@@ -1726,8 +2459,84 @@ class DataWorkstationTab(QWidget):
 • 标准误差（A类不确定度）：平均值的不确定度
 • 异常值检测：使用 Z-score 方法，Z-score > 3 的数据被认为是异常值
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"""
-        
+
         self.result_text.setText(result_str)
+
+    def on_import_csv(self):
+        """导入 CSV 按钮点击事件"""
+        try:
+            file_path, _ = QFileDialog.getOpenFileName(
+                self,
+                "选择 CSV 文件",
+                "",
+                "CSV 文件 (*.csv);;所有文件 (*.*)"
+            )
+
+            if file_path:
+                import pandas as pd
+                df = pd.read_csv(file_path)
+
+                if df.shape[1] < 1:
+                    QMessageBox.warning(self, "错误", "CSV 文件至少需要 1 列数据")
+                    return
+
+                # 根据列数自动切换模式
+                if df.shape[1] == 1:
+                    self.data_mode = 'single'
+                    self.btn_single_mode.setChecked(True)
+                    self.data_table.setHorizontalHeaderLabels(["数值 (Y)"])
+                    self.data_table.setColumnHidden(0, True)
+                else:
+                    self.data_mode = 'double'
+                    self.btn_double_mode.setChecked(True)
+                    self.data_table.setHorizontalHeaderLabels(["X", "Y"])
+                    self.data_table.setColumnHidden(0, False)
+
+                # 清空并填充表格
+                self.data_table.setRowCount(0)
+                for i, row in df.iterrows():
+                    row_pos = self.data_table.rowCount()
+                    self.data_table.insertRow(row_pos)
+
+                    if df.shape[1] == 1:
+                        y_item = QTableWidgetItem(str(row.iloc[0]))
+                        x_item = QTableWidgetItem(str(i + 1))
+                        self.data_table.setItem(row_pos, 0, x_item)
+                        self.data_table.setItem(row_pos, 1, y_item)
+                    else:
+                        x_item = QTableWidgetItem(str(row.iloc[0]))
+                        y_item = QTableWidgetItem(str(row.iloc[1]))
+                        self.data_table.setItem(row_pos, 0, x_item)
+                        self.data_table.setItem(row_pos, 1, y_item)
+
+                # 更新统计和图表
+                self.update_statistics()
+                self.update_chart()
+
+                QMessageBox.information(self, "成功", f"已导入 {len(df)} 行数据")
+
+        except Exception as e:
+            QMessageBox.warning(self, "错误", f"导入 CSV 失败:\n{str(e)}")
+
+    def on_clear_data(self):
+        """清空数据"""
+        reply = QMessageBox.question(
+            self,
+            "确认清空",
+            "确定要清空所有数据吗？",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+
+        if reply == QMessageBox.StandardButton.Yes:
+            self.data_table.setRowCount(15)
+            for i in range(15):
+                x_item = QTableWidgetItem("")
+                y_item = QTableWidgetItem("")
+                self.data_table.setItem(i, 0, x_item)
+                self.data_table.setItem(i, 1, y_item)
+
+            self.update_statistics()
+            self.update_chart()
 
 
 class SimulationWidget(QOpenGLWidget):
@@ -2505,15 +3314,13 @@ class MainWindow(QMainWindow):
         # 创建选项卡控件
         self.tab_widget = QTabWidget()
         
-        # 创建三个主要页面
+        # 创建两个主要页面
         self.optics_tab = OpticsLabTab()
         self.data_tab = DataWorkstationTab()
-        self.virtual_lab_tab = VirtualLabTab()
         
         # 添加选项卡
         self.tab_widget.addTab(self.optics_tab, "光学 AI 实验室")
         self.tab_widget.addTab(self.data_tab, "数据工作台")
-        self.tab_widget.addTab(self.virtual_lab_tab, "虚拟仿真实验室")
         
         # 设置选项卡为中央部件
         self.setCentralWidget(self.tab_widget)
@@ -2708,9 +3515,8 @@ class MainWindow(QMainWindow):
 <hr>
 <p><b>功能模块：</b></p>
 <ul>
-    <li>🔬 <b>光学 AI 实验室</b> - 干涉/衍射条纹分析</li>
+    <li>🔬 <b>光学 AI 实验室</b> - 干涉/衍射条纹分析和光学虚拟仿真</li>
     <li>📊 <b>数据工作台</b> - 数据拟合和不确定度计算</li>
-    <li>🌐 <b>虚拟仿真实验室</b> - 交互式光学仿真</li>
     <li>🤖 <b>AI 虚拟助教</b> - 基于 DeepSeek API 的智能问答</li>
 </ul>
 <hr>
@@ -2746,4 +3552,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

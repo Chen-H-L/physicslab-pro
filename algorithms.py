@@ -536,3 +536,68 @@ def calculate_uncertainty(data_str: str) -> Dict:
         'data': data,
         'count': len(data)
     }
+
+
+def calculate_statistics(data: np.ndarray) -> Dict:
+    """
+    直接从数组计算统计数据（无需字符串解析）
+
+    参数:
+        data: 输入数据数组 (numpy.ndarray)
+
+    返回:
+        包含计算结果的字典:
+        - count: 数据点数量
+        - mean: 平均值
+        - std_dev: 标准差
+        - standard_error: 标准误差（A类不确定度）
+        - variance: 方差
+        - min: 最小值
+        - max: 最大值
+        - median: 中位数
+        - range: 极差（最大值-最小值）
+        - outliers: 异常值列表（Z-score > 3）
+        - data: 原始数据数组
+    """
+    # 确保是 numpy 数组
+    if not isinstance(data, np.ndarray):
+        data = np.array(data)
+
+    # 移除 NaN 和 Inf 值
+    valid_mask = np.isfinite(data)
+    data = data[valid_mask]
+
+    if len(data) == 0:
+        raise ValueError("没有有效数据点")
+
+    # 计算基本统计量
+    count = len(data)
+    mean = np.mean(data)
+    std_dev = np.std(data, ddof=1)  # 样本标准差（使用 n-1）
+    variance = np.var(data, ddof=1)  # 样本方差
+    standard_error = std_dev / np.sqrt(count) if count > 0 else 0
+    data_min = np.min(data)
+    data_max = np.max(data)
+    median = np.median(data)
+    data_range = data_max - data_min
+
+    # 检测异常值（Z-score > 3）
+    outliers = []
+    if std_dev > 0 and count > 1:
+        z_scores = np.abs((data - mean) / std_dev)
+        outlier_indices = np.where(z_scores > 3)[0]
+        outliers = [(i, data[i], z_scores[i]) for i in outlier_indices]
+
+    return {
+        'count': count,
+        'mean': mean,
+        'std_dev': std_dev,
+        'standard_error': standard_error,
+        'variance': variance,
+        'min': data_min,
+        'max': data_max,
+        'median': median,
+        'range': data_range,
+        'outliers': outliers,
+        'data': data
+    }
