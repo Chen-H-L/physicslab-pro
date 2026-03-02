@@ -316,10 +316,10 @@ class MatplotlibCanvas(FigureCanvas):
             self.ax.plot(peak_positions, peak_intensities, 'rx', 
                         markersize=8, markeredgewidth=2, label='检测到的波峰')
         
-        self.ax.set_xlabel('距离 (像素)', color='#e0e4eb')
-        self.ax.set_ylabel('亮度值', color='#e0e4eb')
-        self.ax.set_title('光强分布 vs 像素位置', color='#e0e4eb')
-        self.ax.grid(True, alpha=0.2, color='#3a3f5c', linestyle='--')
+        self.ax.set_xlabel('距离 (像素)', color=self.theme['text'])
+        self.ax.set_ylabel('亮度值', color=self.theme['text'])
+        self.ax.set_title('光强分布 vs 像素位置', color=self.theme['text'])
+        self.ax.grid(True, alpha=0.3, color=self.theme['grid'], linestyle='--')
         self.ax.legend(loc='best', framealpha=0.8)
         
         self.fig.tight_layout()
@@ -344,7 +344,7 @@ class MatplotlibCanvas(FigureCanvas):
         
         # 绘制原始信号（较淡，作为背景）
         self.ax.plot(frame_numbers, intensities, 'b-', linewidth=1, 
-                    alpha=0.3, label='原始信号', zorder=1)
+                    alpha=0.6, label='原始信号', zorder=1)
         
         # 绘制平滑后的信号（更明显）
         if smoothed_intensities is not None and len(smoothed_intensities) > 0:
@@ -354,10 +354,10 @@ class MatplotlibCanvas(FigureCanvas):
                 self.ax.plot(frame_numbers[:min_len], smoothed_intensities[:min_len], 
                            'lime', linewidth=2.5, label='平滑信号', zorder=2)
         
-        self.ax.set_xlabel('帧数', color='#e0e4eb')
-        self.ax.set_ylabel('亮度值', color='#e0e4eb')
-        self.ax.set_title('实时亮度信号（最近 100 帧）', color='#e0e4eb')
-        self.ax.grid(True, alpha=0.2, color='#3a3f5c', linestyle='--')
+        self.ax.set_xlabel('帧数', color=self.theme['text'])
+        self.ax.set_ylabel('亮度值', color=self.theme['text'])
+        self.ax.set_title('实时亮度信号（最近 100 帧）', color=self.theme['text'])
+        self.ax.grid(True, alpha=0.3, color=self.theme['grid'], linestyle='--')
         
         # 固定图例位置，避免乱飞
         self.ax.legend(loc='upper right', framealpha=0.9, fontsize=9)
@@ -675,16 +675,25 @@ class VideoWorker(QThread):
                 intensities_raw.append(intensity)
                 frame_numbers.append(frame_count)
                 
-                # 平滑处理（需要至少 11 个数据点）
-                if len(intensities_raw) >= 11:
-                    smoothed = smooth_signal(np.array(intensities_raw), window_length=11, polyorder=3)
+                # 平滑处理（需要至少 21 个数据点）
+                if len(intensities_raw) >= 21:
+                    # 增加窗口长度以获得更明显的平滑效果
+                    smoothed = smooth_signal(np.array(intensities_raw), window_length=21, polyorder=3)
                     intensities_smoothed = smoothed.tolist()
                     
                     # 实时波峰检测（在平滑后的信号上）
                     if len(intensities_smoothed) >= 10:
                         current_smoothed = intensities_smoothed[-1]
                         peak_count = count_peaks_in_signal(np.array(intensities_smoothed))
+                elif len(intensities_raw) >= 11:
+                    # 当数据点在11-20之间时，使用较小的窗口
+                    smoothed = smooth_signal(np.array(intensities_raw), window_length=11, polyorder=3)
+                    intensities_smoothed = smoothed.tolist()
+                    if len(intensities_smoothed) >= 10:
+                        current_smoothed = intensities_smoothed[-1]
+                        peak_count = count_peaks_in_signal(np.array(intensities_smoothed))
                 else:
+                    # 当数据点少于11个时，直接使用原始值
                     intensities_smoothed.append(intensity)
                 
                 # 发送信号更新 UI
@@ -1280,10 +1289,21 @@ class OpticsLabTab(QWidget):
         result_layout = QVBoxLayout()
         
         # Matplotlib 画布
-        self.plot_canvas = MatplotlibCanvas(self, width=5, height=4, dpi=100)
+        self.plot_canvas = MatplotlibCanvas(self, width=5, height=4, dpi=100, theme='modern')
         self.plot_canvas.setMinimumSize(400, 300)
         self.plot_canvas.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         result_layout.addWidget(self.plot_canvas)
+        
+        # 添加点击事件，显示完整信号图
+        self.plot_canvas.mpl_connect('button_press_event', self.on_plot_clicked)
+        
+        # 导出按钮
+        export_layout = QHBoxLayout()
+        self.btn_export_signal = QPushButton("导出信号数据")
+        self.btn_export_signal.clicked.connect(self.on_export_signal)
+        export_layout.addWidget(self.btn_export_signal)
+        export_layout.addStretch()
+        result_layout.addLayout(export_layout)
         
         result_group.setLayout(result_layout)
         right_layout.addWidget(result_group)
@@ -1762,6 +1782,74 @@ class OpticsLabTab(QWidget):
         """更新进度条"""
         self.progress_bar.setValue(progress)
     
+    def on_plot_clicked(self, event):
+        """点击图表时显示完整信号图"""
+        if len(self.frame_numbers) > 0 and len(self.intensities_raw) > 0:
+            # 显示完整信号图
+            self.plot_canvas.ax.clear()
+            
+            # 绘制原始信号
+            self.plot_canvas.ax.plot(self.frame_numbers, self.intensities_raw, 'b-', linewidth=1, 
+                                   alpha=0.6, label='原始信号', zorder=1)
+            
+            # 绘制平滑后的信号
+            if self.intensities_smoothed and len(self.intensities_smoothed) > 0:
+                min_len = min(len(self.frame_numbers), len(self.intensities_smoothed))
+                if min_len > 0:
+                    self.plot_canvas.ax.plot(self.frame_numbers[:min_len], self.intensities_smoothed[:min_len], 
+                                           'lime', linewidth=2, label='平滑信号', zorder=2)
+            
+            self.plot_canvas.ax.set_xlabel('帧数', color=self.plot_canvas.theme['text'])
+            self.plot_canvas.ax.set_ylabel('亮度值', color=self.plot_canvas.theme['text'])
+            self.plot_canvas.ax.set_title('完整亮度信号', color=self.plot_canvas.theme['text'])
+            self.plot_canvas.ax.grid(True, alpha=0.3, color=self.plot_canvas.theme['grid'], linestyle='--')
+            
+            # 固定图例位置
+            self.plot_canvas.ax.legend(loc='upper right', framealpha=0.9, fontsize=9)
+            
+            # 自动调整坐标轴范围
+            self.plot_canvas.ax.set_xlim(self.frame_numbers[0] - 2, self.frame_numbers[-1] + 2)
+            y_min = min(self.intensities_raw)
+            y_max = max(self.intensities_raw)
+            y_range = y_max - y_min
+            if y_range > 0:
+                self.plot_canvas.ax.set_ylim(y_min - y_range * 0.1, y_max + y_range * 0.1)
+            
+            self.plot_canvas.fig.tight_layout()
+            self.plot_canvas.draw()
+    
+    def on_export_signal(self):
+        """导出信号数据"""
+        if len(self.frame_numbers) > 0 and len(self.intensities_raw) > 0:
+            # 打开保存对话框
+            file_path, _ = QFileDialog.getSaveFileName(
+                self,
+                "导出信号数据",
+                "",
+                "CSV 文件 (*.csv);;所有文件 (*.*)"
+            )
+            
+            if file_path:
+                try:
+                    import pandas as pd
+                    # 创建数据框
+                    data = {
+                        '帧号': self.frame_numbers,
+                        '原始信号': self.intensities_raw
+                    }
+                    
+                    # 如果有平滑信号，也添加进去
+                    if self.intensities_smoothed and len(self.intensities_smoothed) == len(self.frame_numbers):
+                        data['平滑信号'] = self.intensities_smoothed
+                    
+                    df = pd.DataFrame(data)
+                    # 导出为 CSV
+                    df.to_csv(file_path, index=False, encoding='utf-8-sig')
+                    
+                    QMessageBox.information(self, "成功", "信号数据已成功导出！")
+                except Exception as e:
+                    QMessageBox.warning(self, "错误", f"导出失败: {str(e)}")
+    
     def on_video_finished(self):
         """视频处理完成"""
         self.btn_start_stop.setText("开始/停止")
@@ -1777,6 +1865,7 @@ class OpticsLabTab(QWidget):
 
 说明：
 • 分析已完成，可以查看右侧的实时曲线图
+• 点击图表可查看完整的信号曲线
 • 条纹移动数表示干涉条纹经过中心点的完整周期数
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"""
             self.result_text.setText(final_result)
@@ -1865,7 +1954,9 @@ class DataWorkstationTab(QWidget):
         # 表格控件用于手动输入数据
         self.data_table = QTableWidget()
         self.data_table.setColumnCount(2)
-        self.data_table.setHorizontalHeaderLabels(["X", "Y"])
+        # 默认显示为单列模式
+        self.data_table.setHorizontalHeaderLabels(["数值 (Y)"])
+        self.data_table.setColumnHidden(0, True)
         self.data_table.setMinimumHeight(200)
         self.data_table.setMaximumHeight(250)
 
@@ -1892,6 +1983,16 @@ class DataWorkstationTab(QWidget):
             QTableWidget::item:selected {
                 background-color: #0078d4;
                 color: #ffffff;
+            }
+            QTableWidget::item:selected:editable {
+                background-color: #ffffff;
+                color: #333333;
+            }
+            QTableWidget QLineEdit {
+                background-color: #ffffff;
+                color: #333333;
+                border: 1px solid #d9d9d9;
+                padding: 2px;
             }
             QHeaderView::section {
                 background-color: #f5f7fa;
