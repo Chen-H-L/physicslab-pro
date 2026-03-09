@@ -6,6 +6,5 @@ pandas>=2.0.0
 scipy>=1.11.0
 PyOpenGL>=3.1.6
 PyOpenGL-accelerate>=3.1.6
-torch>=2.1.0
 
                                                                                          

@@ -750,91 +750,74 @@ class AIAssistantDock(QDockWidget):
         # 创建主容器
         main_widget = QWidget()
         main_layout = QVBoxLayout()
-        main_layout.setContentsMargins(10, 10, 10, 10)
-        main_layout.setSpacing(10)
-        
-        # 标题标签
-        title_label = QLabel("💬 智能问答")
-        title_label.setFont(QFont("Arial", 11, QFont.Weight.Bold))
-        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        main_layout.addWidget(title_label)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
         
         # 聊天记录显示区域（QTextBrowser 支持 HTML）
         self.chat_display = QTextBrowser()
         self.chat_display.setReadOnly(True)
-        self.chat_display.setMaximumHeight(400)
         self.chat_display.setStyleSheet("""
             QTextBrowser {
                 background-color: #ffffff;
                 color: #333333;
-                border: 2px solid #d9d9d9;
-                border-radius: 8px;
-                padding: 10px;
-                font-size: 12px;
+                border: none;
+                padding: 20px;
+                font-size: 14px;
                 line-height: 1.6;
+                font-family: 'Segoe UI', 'Microsoft YaHei', Arial, sans-serif;
             }
         """)
-        self.chat_display.setMarkdown("### 欢迎使用 AI 虚拟助教\n\n这里将显示您与 AI 的对话记录。请在下方输入您的问题。")
+        self.chat_display.setHtml("""
+            <html>
+            <body style="margin: 0; padding: 0;">
+                <div style="text-align: center; padding: 40px 20px; color: #666;">
+                    <h2 style="margin-bottom: 10px; color: #333;">新对话</h2>
+                    <p>欢迎使用 AI 虚拟助教</p>
+                    <p style="font-size: 12px; color: #999; margin-top: 20px;">请输入您的问题，开始对话</p>
+                </div>
+            </body>
+            </html>
+        """)
         main_layout.addWidget(self.chat_display)
         
         # 输入区域
-        input_label = QLabel("📝 您的问题：")
-        input_label.setFont(QFont("Arial", 10, QFont.Weight.Bold))
-        main_layout.addWidget(input_label)
+        input_container = QWidget()
+        input_container.setStyleSheet("background-color: #f8f9fa; border-top: 1px solid #e9ecef;")
+        input_layout = QVBoxLayout()
+        input_layout.setContentsMargins(15, 10, 15, 15)
+        input_layout.setSpacing(10)
         
         # 用户输入框
         self.input_field = QLineEdit()
-        self.input_field.setPlaceholderText("请输入您的问题，然后按 Enter 或点击发送按钮...")
-        self.input_field.setMinimumHeight(36)
+        self.input_field.setPlaceholderText("给 AI 发送消息...")
+        self.input_field.setMinimumHeight(40)
         self.input_field.returnPressed.connect(self.on_send_question)
         self.input_field.setStyleSheet("""
             QLineEdit {
                 background-color: #ffffff;
                 color: #333333;
-                border: 2px solid #d9d9d9;
-                border-radius: 6px;
-                padding: 8px;
-                font-size: 12px;
-                selection-background-color: #0078d4;
-                selection-color: #ffffff;
+                border: 1px solid #e9ecef;
+                border-radius: 8px;
+                padding: 10px 15px;
+                font-size: 14px;
+                font-family: 'Segoe UI', 'Microsoft YaHei', Arial, sans-serif;
+                selection-background-color: #e3f2fd;
+                selection-color: #1976d2;
             }
             QLineEdit:focus {
-                border: 2px solid #0078d4;
+                border: 1px solid #1976d2;
                 background-color: #ffffff;
+                outline: none;
             }
         """)
-        main_layout.addWidget(self.input_field)
+        input_layout.addWidget(self.input_field)
         
         # 按钮区域
         button_layout = QHBoxLayout()
-        button_layout.setSpacing(8)
-        
-        # 发送按钮
-        self.send_button = QPushButton("📤 发送")
-        self.send_button.setMinimumHeight(36)
-        self.send_button.setMaximumWidth(100)
-        self.send_button.clicked.connect(self.on_send_question)
-        self.send_button.setStyleSheet("""
-            QPushButton {
-                background-color: #0078d4;
-                color: #ffffff;
-                border: none;
-                padding: 8px 16px;
-                border-radius: 6px;
-                font-weight: 600;
-                font-size: 11px;
-            }
-            QPushButton:hover {
-                background-color: #106ebe;
-            }
-            QPushButton:pressed {
-                background-color: #005a9e;
-            }
-        """)
-        button_layout.addWidget(self.send_button)
+        button_layout.setSpacing(10)
         
         # 清空聊天记录按钮
-        self.clear_button = QPushButton("🗑️ 清空")
+        self.clear_button = QPushButton("清空")
         self.clear_button.setMinimumHeight(36)
         self.clear_button.setMaximumWidth(80)
         self.clear_button.clicked.connect(self.on_clear_chat)
@@ -842,45 +825,57 @@ class AIAssistantDock(QDockWidget):
             QPushButton {
                 background-color: #ffffff;
                 color: #666666;
-                border: 2px solid #d9d9d9;
+                border: 1px solid #e9ecef;
                 padding: 8px 16px;
                 border-radius: 6px;
-                font-weight: 600;
-                font-size: 11px;
+                font-size: 13px;
+                font-family: 'Segoe UI', 'Microsoft YaHei', Arial, sans-serif;
             }
             QPushButton:hover {
-                background-color: #f5f5f5;
+                background-color: #f8f9fa;
                 color: #333333;
-            }
-            QPushButton:pressed {
-                background-color: #e6e6e6;
+                border: 1px solid #dee2e6;
             }
         """)
         button_layout.addWidget(self.clear_button)
         button_layout.addStretch()
         
-        main_layout.addLayout(button_layout)
+        # 发送按钮
+        self.send_button = QPushButton("发送")
+        self.send_button.setMinimumHeight(36)
+        self.send_button.setMaximumWidth(100)
+        self.send_button.clicked.connect(self.on_send_question)
+        self.send_button.setStyleSheet("""
+            QPushButton {
+                background-color: #1976d2;
+                color: #ffffff;
+                border: none;
+                padding: 8px 20px;
+                border-radius: 6px;
+                font-size: 13px;
+                font-weight: 500;
+                font-family: 'Segoe UI', 'Microsoft YaHei', Arial, sans-serif;
+            }
+            QPushButton:hover {
+                background-color: #1565c0;
+            }
+            QPushButton:pressed {
+                background-color: #0d47a1;
+            }
+        """)
+        button_layout.addWidget(self.send_button)
+        
+        input_layout.addLayout(button_layout)
         
         # 提示信息标签
-        self.status_label = QLabel("⏱️ 准备就绪")
-        self.status_label.setFont(QFont("Arial", 10))
-        self.status_label.setStyleSheet("color: #90ee90;")
+        self.status_label = QLabel("准备就绪")
+        self.status_label.setFont(QFont("Segoe UI", 11))
+        self.status_label.setStyleSheet("color: #4caf50; font-size: 11px;")
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        main_layout.addWidget(self.status_label)
+        input_layout.addWidget(self.status_label)
         
-        # 信息提示
-        info_label = QLabel(
-            "💡 提示：请先在右侧项目中配置您的 DeepSeek API Key\n"
-            "（搜索 'API_KEY =' 进行修改）"
-        )
-        info_label.setFont(QFont("Arial", 9))
-        info_label.setStyleSheet("color: #f59e0b; line-height: 1.4;")
-        info_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        info_label.setWordWrap(True)
-        main_layout.addWidget(info_label)
-        
-        # 添加伸缩空间
-        main_layout.addStretch()
+        input_container.setLayout(input_layout)
+        main_layout.addWidget(input_container)
         
         # 设置主小部件
         main_widget.setLayout(main_layout)
@@ -891,17 +886,17 @@ class AIAssistantDock(QDockWidget):
             QDockWidget {
                 background-color: #ffffff;
                 color: #333333;
-                border: 2px solid #d9d9d9;
-                border-radius: 8px;
+                border: 1px solid #e9ecef;
                 titlebar-close-icon: url(none);
             }
             QDockWidget::title {
                 text-align: center;
-                padding: 5px;
-                background-color: #f5f7fa;
-                border-radius: 4px;
-                font-weight: bold;
+                padding: 10px;
+                background-color: #ffffff;
+                font-weight: 600;
+                font-size: 14px;
                 color: #333333;
+                font-family: 'Segoe UI', 'Microsoft YaHei', Arial, sans-serif;
             }
         """)
     
@@ -955,23 +950,28 @@ class AIAssistantDock(QDockWidget):
         # 获取当前的 HTML 内容
         current_html = self.chat_display.toHtml()
         
-        # 构造消息 HTML（支持 Markdown 风格）
+        # 处理消息内容，改进公式显示
+        processed_message = self.process_message(message)
+        
+        # 构造消息 HTML（类似网页版 DeepSeek 风格）
         if is_user:
             # 用户消息（蓝色，右对齐）
             message_html = f"""
-<div style="margin: 12px 0; padding: 10px; background-color: #1e2837; border-left: 3px solid #4f7cff; border-radius: 4px;">
-    <span style="color: #4f7cff; font-weight: bold;">👤 {role}</span>
-    <div style="color: #e0e0e0; margin-top: 6px; white-space: pre-wrap; word-wrap: break-word;">{message}</div>
+<div style="display: flex; justify-content: flex-end; margin: 10px 0;">
+    <div style="max-width: 75%; background-color: #e3f2fd; border-radius: 18px 18px 4px 18px; padding: 12px 16px; box-shadow: 0 1px 2px rgba(0,0,0,0.1);">
+        <div style="color: #1976d2; font-weight: 500; margin-bottom: 4px;">👤 {role}</div>
+        <div style="color: #333333; white-space: pre-wrap; word-wrap: break-word; line-height: 1.6;">{processed_message}</div>
+    </div>
 </div>
 """
         else:
-            # AI 消息（绿色，左对齐），支持基本的 Markdown
-            # 简单处理 LaTeX 公式
-            processed_message = message.replace("$", "")  # 移除公式符号，在 QTextBrowser 中直接显示
+            # AI 消息（白色，左对齐）
             message_html = f"""
-<div style="margin: 12px 0; padding: 10px; background-color: #1a2332; border-left: 3px solid #4caf50; border-radius: 4px;">
-    <span style="color: #4caf50; font-weight: bold;">🤖 {role}</span>
-    <div style="color: #e0e0e0; margin-top: 6px; white-space: pre-wrap; word-wrap: break-word; line-height: 1.6;">{processed_message}</div>
+<div style="display: flex; margin: 10px 0;">
+    <div style="max-width: 75%; background-color: #ffffff; border: 1px solid #e9ecef; border-radius: 4px 18px 18px 4px; padding: 12px 16px; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
+        <div style="color: #1976d2; font-weight: 500; margin-bottom: 4px;">🤖 {role}</div>
+        <div style="color: #333333; white-space: pre-wrap; word-wrap: break-word; line-height: 1.6;">{processed_message}</div>
+    </div>
 </div>
 """
         
@@ -982,6 +982,124 @@ class AIAssistantDock(QDockWidget):
         # 自动滚动到底部
         scroll_bar = self.chat_display.verticalScrollBar()
         scroll_bar.setValue(scroll_bar.maximum())
+    
+    def process_message(self, message: str) -> str:
+        """处理消息内容，改进公式显示"""
+        # 处理消息内容，改进公式显示
+        
+        # 替换常见的数学符号
+        replacements = {
+            "\\lambda": "λ",
+            "\\theta": "θ",
+            "\\sin": "sin",
+            "\\cos": "cos",
+            "\\tan": "tan",
+            "\\pi": "π",
+            "\\cdot": "·",
+            "\\times": "×",
+            "\\div": "÷",
+            "\\pm": "±",
+            "\\infty": "∞",
+            "\\sqrt": "√",
+            "\\frac": "/",
+            "\\sum": "Σ",
+            "\\int": "∫",
+            "\\partial": "∂",
+            "\\nabla": "∇",
+            "\\ldots": "...",
+            "\\dots": "...",
+            "\\cdots": "...",
+            "\\ldots": "...",
+            "\\approx": "≈",
+            "\\equiv": "≡",
+            "\\neq": "≠",
+            "\\leq": "≤",
+            "\\geq": "≥",
+            "\\lt": "<",
+            "\\gt": ">",
+            "\\quad": " ",
+            "\\Delta": "Δ",
+            "\\alpha": "α",
+            "\\beta": "β",
+            "\\gamma": "γ",
+            "\\delta": "δ",
+            "\\epsilon": "ε",
+            "\\phi": "φ",
+            "\\psi": "ψ",
+            "\\omega": "ω",
+        }
+        
+        for latex, symbol in replacements.items():
+            message = message.replace(latex, symbol)
+        
+        # 处理美元符号包围的数学表达式
+        import re
+        # 处理行内公式 $...$
+        message = re.sub(r'\$(.*?)\$', r'<span style="font-family: Cambria Math, Times New Roman, serif; font-style: italic;">\1</span>', message)
+        
+        # 处理Markdown粗体标记 **...**
+        message = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', message)
+        
+        # 处理多余的星号
+        message = re.sub(r'\*+', r'', message)
+        
+        # 处理多行文本，添加适当的换行和缩进
+        lines = message.split('\n')
+        processed_lines = []
+        
+        # 检测是否在公式块中
+        in_equation = False
+        equation_lines = []
+        
+        for line in lines:
+            line = line.strip()
+            
+            # 处理公式块
+            if line.startswith('$$') and line.endswith('$$'):
+                # 单行公式
+                eq_content = line.strip('$$').strip()
+                processed_lines.append(f"<div style='margin: 12px 0; padding: 10px; background-color: #f8f9fa; border-radius: 6px; text-align: center; font-family: Cambria Math, Times New Roman, serif;'>{eq_content}</div>")
+            elif line.startswith('$$'):
+                # 公式块开始
+                in_equation = True
+                equation_lines = []
+            elif line.endswith('$$'):
+                # 公式块结束
+                in_equation = False
+                eq_content = ' '.join(equation_lines).strip()
+                processed_lines.append(f"<div style='margin: 12px 0; padding: 12px; background-color: #f8f9fa; border-radius: 6px; text-align: center; font-family: Cambria Math, Times New Roman, serif; font-size: 15px;'>{eq_content}</div>")
+            elif in_equation:
+                # 公式块内容
+                equation_lines.append(line)
+            elif line:
+                # 处理标题
+                if line.startswith("#"):
+                    level = line.count("#")
+                    text = line.lstrip("#").strip()
+                    if level == 1:
+                        processed_lines.append(f"<h3 style='margin: 20px 0 12px 0; color: #333; font-weight: 600;'>{text}</h3>")
+                    elif level == 2:
+                        processed_lines.append(f"<h4 style='margin: 16px 0 10px 0; color: #333; font-weight: 600;'>{text}</h4>")
+                    elif level == 3:
+                        processed_lines.append(f"<h5 style='margin: 14px 0 8px 0; color: #333; font-weight: 600;'>{text}</h5>")
+                # 处理列表
+                elif line.startswith("-") or line.startswith("*"):
+                    # 检查是否包含公式
+                    if any(sym in line for sym in ["λ", "θ", "π", "Δ", "α", "β", "γ", "δ", "ε", "φ", "ψ", "ω", "sin", "cos", "tan"]):
+                        processed_lines.append(f"<div style='margin-left: 20px; margin-bottom: 8px; padding: 8px; background-color: #f8f9fa; border-radius: 4px;'>• {line.lstrip('-* ').strip()}</div>")
+                    else:
+                        processed_lines.append(f"<div style='margin-left: 20px; margin-bottom: 5px;'>• {line.lstrip('-* ').strip()}</div>")
+                # 处理引用
+                elif line.startswith("> "):
+                    processed_lines.append(f"<div style='margin: 10px 0; padding: 12px; background-color: #f0f7ff; border-left: 4px solid #1976d2; border-radius: 0 6px 6px 0;'>{line.lstrip('> ').strip()}</div>")
+                # 处理包含公式的普通文本
+                elif any(sym in line for sym in ["λ", "θ", "π", "Δ", "α", "β", "γ", "δ", "ε", "φ", "ψ", "ω", "sin", "cos", "tan", "=", "<", ">", "±"]):
+                    processed_lines.append(f"<div style='margin: 8px 0; padding: 8px; background-color: #fafafa; border-radius: 4px; font-family: Cambria Math, Times New Roman, serif;'>{line}</div>")
+                # 处理普通文本
+                else:
+                    processed_lines.append(f"<p style='margin: 8px 0; line-height: 1.6;'>{line}</p>")
+        
+        return "".join(processed_lines)
     
     def on_response_received(self, response: str):
         """接收 AI 响应"""
@@ -2080,7 +2198,7 @@ class DataWorkstationTab(QWidget):
         right_layout.addWidget(chart_title)
 
         chart_type_layout = QHBoxLayout()
-        chart_type_layout.setSpacing(15)
+        chart_type_layout.setSpacing(8)
 
         self.btn_chart_boxplot = QPushButton("箱型图")
         self.btn_chart_line = QPushButton("折线图")
@@ -2100,7 +2218,7 @@ class DataWorkstationTab(QWidget):
                     color: #495057;
                     border: 1px solid #bdc3c7;
                     border-radius: 5px;
-                    padding: 5px 15px;
+                    padding: 5px 12px;
                     font-size: 11px;
                 }
                 QPushButton:hover {
@@ -2123,7 +2241,11 @@ class DataWorkstationTab(QWidget):
         chart_type_layout.addWidget(self.btn_chart_histogram)
         chart_type_layout.addStretch()
 
-        right_layout.addLayout(chart_type_layout)
+        # 创建容器并设置最大宽度
+        chart_type_container = QWidget()
+        chart_type_container.setLayout(chart_type_layout)
+        chart_type_container.setMaximumWidth(500)
+        right_layout.addWidget(chart_type_container)
         right_layout.addSpacing(10)
 
         # Matplotlib 画布（使用现代清新风）
