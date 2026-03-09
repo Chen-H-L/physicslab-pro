@@ -14,6 +14,7 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
     QSplitter,
     QTextEdit,
@@ -26,12 +27,37 @@ plt.rcParams["font.sans-serif"] = ["SimHei", "Microsoft YaHei", "Arial Unicode M
 plt.rcParams["axes.unicode_minus"] = False
 
 
+def _draw_arrow(painter, start, end, color, width=3, head=10):
+    painter.setPen(QPen(QColor(color), width))
+    painter.drawLine(int(start[0]), int(start[1]), int(end[0]), int(end[1]))
+
+    angle = np.arctan2(end[1] - start[1], end[0] - start[0])
+    left = (
+        end[0] - head * np.cos(angle - np.pi / 7),
+        end[1] - head * np.sin(angle - np.pi / 7),
+    )
+    right = (
+        end[0] - head * np.cos(angle + np.pi / 7),
+        end[1] - head * np.sin(angle + np.pi / 7),
+    )
+    painter.drawLine(int(end[0]), int(end[1]), int(left[0]), int(left[1]))
+    painter.drawLine(int(end[0]), int(end[1]), int(right[0]), int(right[1]))
+
+
+def _draw_legend_item(painter, x, y, color, text):
+    painter.setPen(QPen(QColor(color), 8))
+    painter.drawPoint(int(x), int(y))
+    painter.setPen(QColor("#334155"))
+    painter.setFont(QFont("Microsoft YaHei", 9))
+    painter.drawText(int(x + 12), int(y + 4), text)
+
+
 class SpringOscillatorWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.amplitude_cm = 20.0
         self.displacement_cm = 0.0
-        self.setMinimumHeight(240)
+        self.setMinimumHeight(150)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
     def set_state(self, amplitude_cm: float, displacement_cm: float):
@@ -110,25 +136,36 @@ class PhasorWidget(QWidget):
         super().__init__(parent)
         self.amplitude_cm = 20.0
         self.phase_rad = 0.0
-        self.setMinimumHeight(240)
+        self.omega = 1.0
+        self.setMinimumHeight(150)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
-    def set_state(self, amplitude_cm: float, phase_rad: float):
+    def set_state(self, amplitude_cm: float, phase_rad: float, omega: float = 1.0):
         self.amplitude_cm = max(0.01, float(amplitude_cm))
         self.phase_rad = float(phase_rad)
+        self.omega = max(float(omega), 1e-9)
         self.update()
 
     def paintEvent(self, event):
         del event
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        rect = self.rect().adjusted(16, 16, -16, -16)
-        painter.fillRect(rect, QColor("#ffffff"))
+        rect = self.rect().adjusted(10, 10, -10, -10)
+        painter.setPen(QPen(QColor("#d9d9d9"), 1))
+        painter.setBrush(QColor("#ffffff"))
+        painter.drawRoundedRect(rect, 12, 12)
 
-        radius = min(rect.width(), rect.height()) * 0.32
-        cx = rect.center().x()
-        cy = rect.center().y() - 12
+        info_width = min(180, max(130, rect.width() // 3))
+        diagram_rect = rect.adjusted(14, 12, -info_width - 22, -18)
+        info_rect = rect.adjusted(rect.width() - info_width - 10, 16, -12, -16)
 
+        radius = min(diagram_rect.width() * 0.42, diagram_rect.height() * 0.44)
+        cx = diagram_rect.center().x()
+        cy = diagram_rect.center().y() + 6
+
+        painter.setPen(QPen(QColor("#dbeafe"), 1))
+        painter.setBrush(QColor("#f8fbff"))
+        painter.drawEllipse(int(cx - radius), int(cy - radius), int(radius * 2), int(radius * 2))
         painter.setPen(QPen(QColor("#cbd5e1"), 2))
         painter.drawEllipse(int(cx - radius), int(cy - radius), int(radius * 2), int(radius * 2))
         painter.setPen(QPen(QColor("#94a3b8"), 1, Qt.PenStyle.DashLine))
@@ -136,22 +173,82 @@ class PhasorWidget(QWidget):
         painter.drawLine(int(cx), int(cy - radius - 18), int(cx), int(cy + radius + 18))
 
         scale = radius / max(self.amplitude_cm, 1e-6)
-        x = cx + self.amplitude_cm * np.cos(self.phase_rad) * scale
-        y = cy - self.amplitude_cm * np.sin(self.phase_rad) * scale
+        end_x = cx + self.amplitude_cm * np.cos(self.phase_rad) * scale
+        end_y = cy - self.amplitude_cm * np.sin(self.phase_rad) * scale
+        proj_x = end_x
+        proj_y = cy
+        x_value = self.amplitude_cm * np.cos(self.phase_rad)
+        v_value = -self.amplitude_cm * self.omega * np.sin(self.phase_rad)
+        a_value = -self.amplitude_cm * (self.omega ** 2) * np.cos(self.phase_rad)
 
-        painter.setPen(QPen(QColor("#2f80ed"), 4))
-        painter.drawLine(int(cx), int(cy), int(x), int(y))
+        painter.setPen(QPen(QColor("#bfdbfe"), 2, Qt.PenStyle.DashLine))
+        painter.drawLine(int(end_x), int(end_y), int(proj_x), int(proj_y))
+        _draw_arrow(painter, (cx, cy), (end_x, end_y), "#2f80ed", width=4, head=10)
+        _draw_arrow(painter, (cx, cy), (proj_x, proj_y), "#f59e0b", width=4, head=9)
+
+        tangent_length = min(34, radius * 0.28)
+        tangent_dx = -np.sin(self.phase_rad) * tangent_length
+        tangent_dy = -np.cos(self.phase_rad) * tangent_length
+        tangent_start = (end_x - tangent_dx * 0.25, end_y - tangent_dy * 0.25)
+        tangent_end = (end_x + tangent_dx * 0.75, end_y + tangent_dy * 0.75)
+        _draw_arrow(painter, tangent_start, tangent_end, "#27ae60", width=3, head=8)
+
+        accel_length = min(abs(x_value) * scale, radius * 0.72)
+        direction = np.sign(x_value) if abs(x_value) > 1e-9 else 1.0
+        accel_end = (proj_x - direction * accel_length, proj_y)
+        _draw_arrow(painter, (proj_x, proj_y), accel_end, "#e74c3c", width=3, head=8)
+
         painter.setBrush(QColor("#2f80ed"))
-        painter.drawEllipse(int(x - 5), int(y - 5), 10, 10)
+        painter.setPen(QPen(QColor("#2f80ed"), 2))
+        painter.drawEllipse(int(end_x - 5), int(end_y - 5), 10, 10)
+        painter.setPen(QColor("#334155"))
+        painter.setFont(QFont("Microsoft YaHei", 9))
+        painter.drawText(int(end_x + 8), int(end_y - 6), "A")
+        painter.drawText(int(proj_x + 6), int(proj_y - 6), "x")
+        painter.drawText(int(tangent_end[0] + 6), int(tangent_end[1]), "v")
+        painter.drawText(int(accel_end[0] + 6), int(accel_end[1] - 6), "a")
 
+        painter.setPen(QPen(QColor("#e2e8f0"), 1))
+        painter.drawLine(info_rect.left() - 10, info_rect.top(), info_rect.left() - 10, info_rect.bottom())
         painter.setPen(QColor("#1f2937"))
-        painter.setFont(QFont("Microsoft YaHei", 10))
-        painter.drawText(rect.left() + 6, rect.top() + 22, "旋转矢量图")
+        painter.setFont(QFont("Microsoft YaHei", 10, QFont.Weight.Bold))
+        painter.drawText(info_rect.left(), info_rect.top() + 8, info_rect.width(), 24, Qt.AlignmentFlag.AlignLeft, "实时量")
+
+        info_rows = [
+            ("#f59e0b", "位移 x", f"{x_value:.2f} cm"),
+            ("#27ae60", "速度 v", f"{v_value:.2f} cm/s"),
+            ("#e74c3c", "加速度 a", f"{a_value:.2f} cm/s^2"),
+            ("#2f80ed", "相位 θ", f"{self.phase_rad:.2f} rad"),
+        ]
+        y = info_rect.top() + 38
+        for color, label, value in info_rows:
+            painter.setPen(QPen(QColor(color), 8))
+            painter.drawPoint(info_rect.left() + 6, y)
+            painter.setPen(QColor("#475569"))
+            painter.setFont(QFont("Microsoft YaHei", 9))
+            painter.drawText(info_rect.left() + 18, y - 8, 70, 18, Qt.AlignmentFlag.AlignLeft, label)
+            painter.setPen(QColor("#0f172a"))
+            painter.setFont(QFont("Microsoft YaHei", 9, QFont.Weight.Bold))
+            painter.drawText(info_rect.left() + 88, y - 8, info_rect.width() - 90, 18, Qt.AlignmentFlag.AlignLeft, value)
+            y += 28
+
+        painter.setPen(QColor("#64748b"))
+        painter.setFont(QFont("Microsoft YaHei", 8))
         painter.drawText(
-            rect.left() + 6,
-            rect.bottom() - 6,
-            f"A = {self.amplitude_cm:.2f} cm    φ = {np.degrees(self.phase_rad):.1f}°",
+            info_rect.left(),
+            info_rect.bottom() - 32,
+            info_rect.width(),
+            32,
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop,
+            "x = A cosθ\nv = -Aω sinθ,  a = -ω^2 x",
         )
+
+        legend_y_1 = rect.bottom() - 24
+        legend_y_2 = rect.bottom() - 10
+        _draw_legend_item(painter, diagram_rect.left() + 8, legend_y_1, "#2f80ed", "旋转矢量")
+        _draw_legend_item(painter, diagram_rect.left() + 118, legend_y_1, "#f59e0b", "位移投影")
+        _draw_legend_item(painter, diagram_rect.left() + 8, legend_y_2, "#27ae60", "速度方向")
+        _draw_legend_item(painter, diagram_rect.left() + 118, legend_y_2, "#e74c3c", "加速度方向")
 
 
 class CompoundPhasorWidget(QWidget):
@@ -161,7 +258,7 @@ class CompoundPhasorWidget(QWidget):
         self.amplitude_2 = 15.0
         self.phase_1 = 0.0
         self.phase_2 = np.pi / 3
-        self.setMinimumHeight(240)
+        self.setMinimumHeight(150)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
     def set_state(self, amplitude_1: float, amplitude_2: float, phase_1: float, phase_2: float):
@@ -175,12 +272,14 @@ class CompoundPhasorWidget(QWidget):
         del event
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        rect = self.rect().adjusted(16, 16, -16, -16)
-        painter.fillRect(rect, QColor("#ffffff"))
+        rect = self.rect().adjusted(10, 10, -10, -10)
+        painter.setPen(QPen(QColor("#d9d9d9"), 1))
+        painter.setBrush(QColor("#ffffff"))
+        painter.drawRoundedRect(rect, 12, 12)
 
-        radius = min(rect.width(), rect.height()) * 0.3
-        cx = rect.center().x()
-        cy = rect.center().y() - 14
+        radius = min(rect.width() * 0.36, rect.height() * 0.42)
+        cx = rect.center().x() - 8
+        cy = rect.center().y() + 2
 
         v1 = self.amplitude_1 * np.exp(1j * self.phase_1)
         v2 = self.amplitude_2 * np.exp(1j * self.phase_2)
@@ -193,22 +292,20 @@ class CompoundPhasorWidget(QWidget):
         p1 = to_point(v1)
         p2 = to_point(v2)
         pr = to_point(vr)
-        p12 = to_point(v1 + v2)
-        p21 = to_point(v2 + v1)
-
+        painter.setPen(QPen(QColor("#dbeafe"), 1))
+        painter.setBrush(QColor("#f8fbff"))
+        painter.drawEllipse(int(cx - radius), int(cy - radius), int(radius * 2), int(radius * 2))
         painter.setPen(QPen(QColor("#cbd5e1"), 2))
         painter.drawEllipse(int(cx - radius), int(cy - radius), int(radius * 2), int(radius * 2))
         painter.setPen(QPen(QColor("#94a3b8"), 1, Qt.PenStyle.DashLine))
         painter.drawLine(int(cx - radius - 18), int(cy), int(cx + radius + 18), int(cy))
         painter.drawLine(int(cx), int(cy - radius - 18), int(cx), int(cy + radius + 18))
 
-        painter.setPen(QPen(QColor("#2f80ed"), 4))
-        painter.drawLine(int(cx), int(cy), int(p1[0]), int(p1[1]))
+        _draw_arrow(painter, (cx, cy), p1, "#2f80ed", width=4, head=10)
         painter.setBrush(QColor("#2f80ed"))
         painter.drawEllipse(int(p1[0] - 4), int(p1[1] - 4), 8, 8)
 
-        painter.setPen(QPen(QColor("#27ae60"), 4))
-        painter.drawLine(int(cx), int(cy), int(p2[0]), int(p2[1]))
+        _draw_arrow(painter, (cx, cy), p2, "#27ae60", width=4, head=10)
         painter.setBrush(QColor("#27ae60"))
         painter.drawEllipse(int(p2[0] - 4), int(p2[1] - 4), 8, 8)
 
@@ -216,29 +313,26 @@ class CompoundPhasorWidget(QWidget):
         painter.drawLine(int(p1[0]), int(p1[1]), int(pr[0]), int(pr[1]))
         painter.drawLine(int(p2[0]), int(p2[1]), int(pr[0]), int(pr[1]))
 
-        painter.setPen(QPen(QColor("#e67e22"), 5))
-        painter.drawLine(int(cx), int(cy), int(pr[0]), int(pr[1]))
+        _draw_arrow(painter, (cx, cy), pr, "#e67e22", width=5, head=11)
         painter.setBrush(QColor("#e67e22"))
         painter.drawEllipse(int(pr[0] - 5), int(pr[1] - 5), 10, 10)
 
         painter.setPen(QColor("#1f2937"))
         painter.setFont(QFont("Microsoft YaHei", 10))
-        painter.drawText(rect.left() + 6, rect.top() + 22, "合成旋转矢量图")
         painter.drawText(int(p1[0]) + 6, int(p1[1]) - 2, "1")
         painter.drawText(int(p2[0]) + 6, int(p2[1]) - 2, "2")
         painter.drawText(int(pr[0]) + 6, int(pr[1]) - 2, "R")
-        painter.drawText(
-            rect.left() + 6,
-            rect.bottom() - 6,
-            f"Δφ = {np.degrees(self.phase_2 - self.phase_1):.1f}°    A合 = {abs(vr):.2f} cm",
-        )
+        _draw_legend_item(painter, rect.left() + 10, rect.bottom() - 10, "#2f80ed", "分振动 1")
+        _draw_legend_item(painter, rect.left() + 108, rect.bottom() - 10, "#27ae60", "分振动 2")
+        _draw_legend_item(painter, rect.left() + 206, rect.bottom() - 10, "#e67e22", "合振动")
 
 
 class MotionCurveCanvas(FigureCanvas):
     def __init__(self, titles, ylabels, colors, parent=None):
-        self.figure = Figure(figsize=(8, 8), dpi=100, facecolor="#f8f9fa")
+        self.figure = Figure(figsize=(8, 4.8), dpi=100, facecolor="#f8f9fa")
         super().__init__(self.figure)
         self.setParent(parent)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.titles = list(titles)
         self.ylabels = list(ylabels)
         self.colors = list(colors)
@@ -337,42 +431,98 @@ class VibrationLabTab(QWidget):
         self.on_mode_changed(self.SINGLE_MODE)
 
     def init_ui(self):
+        self.setObjectName("vibrationLabTab")
         self.setStyleSheet(
             """
-            QWidget {
+            QWidget#vibrationLabTab {
                 background-color: #f5f7fa;
+            }
+            QScrollArea {
+                border: none;
+                background-color: transparent;
+            }
+            QScrollBar:vertical {
+                width: 10px;
+                background: #f1f5f9;
+                border-radius: 5px;
+            }
+            QScrollBar::handle:vertical {
+                background: #cbd5e1;
+                border-radius: 5px;
             }
             QGroupBox {
                 background-color: #ffffff;
                 border: 2px solid #d9d9d9;
-                border-radius: 10px;
-                margin-top: 12px;
+                border-radius: 8px;
+                margin-top: 10px;
                 font-weight: 600;
                 color: #1f2937;
             }
             QGroupBox::title {
                 subcontrol-origin: margin;
                 left: 12px;
-                padding: 0 6px;
+                padding: 0 4px;
             }
             QDoubleSpinBox, QComboBox {
                 background-color: #ffffff;
                 border: 2px solid #d9d9d9;
-                border-radius: 7px;
-                padding: 6px 8px;
-                min-height: 18px;
+                border-radius: 6px;
+                padding: 4px 8px;
+                min-height: 16px;
                 color: #1f2937;
             }
             QDoubleSpinBox:focus, QComboBox:focus {
                 border-color: #0078d4;
             }
+            QComboBox::drop-down {
+                subcontrol-origin: padding;
+                subcontrol-position: top right;
+                width: 24px;
+                background-color: #e2e8f0;
+                border-left: 1px solid #cbd5e1;
+                border-top-right-radius: 4px;
+                border-bottom-right-radius: 4px;
+            }
+            QDoubleSpinBox::up-button, QDoubleSpinBox::down-button {
+                width: 22px;
+                background-color: #e2e8f0;
+                border-left: 1px solid #cbd5e1;
+            }
+            QDoubleSpinBox::up-button {
+                border-top-right-radius: 4px;
+            }
+            QDoubleSpinBox::down-button {
+                border-top: 1px solid #cbd5e1;
+                border-bottom-right-radius: 4px;
+            }
+            QComboBox::drop-down:hover,
+            QDoubleSpinBox::up-button:hover,
+            QDoubleSpinBox::down-button:hover {
+                background-color: #cbd5e1;
+            }
+            QPushButton {
+                background-color: #0078d4;
+                color: #ffffff;
+                border: none;
+                padding: 10px 20px;
+                border-radius: 6px;
+                font-weight: 600;
+                font-size: 12px;
+            }
+            QPushButton:hover {
+                background-color: #106ebe;
+            }
+            QPushButton:pressed {
+                background-color: #005a9e;
+            }
             QLabel {
                 color: #334155;
+                background-color: transparent;
             }
             QTextEdit {
                 background-color: #ffffff;
                 border: 2px solid #d9d9d9;
-                border-radius: 10px;
+                border-radius: 8px;
                 padding: 4px;
             }
             """
@@ -386,14 +536,18 @@ class VibrationLabTab(QWidget):
         splitter.setChildrenCollapsible(False)
         root_layout.addWidget(splitter)
 
+        left_scroll = QScrollArea()
+        left_scroll.setWidgetResizable(True)
+        left_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+
         left_panel = QWidget()
-        left_panel.setMaximumWidth(390)
+        left_panel.setMaximumWidth(340)
         left_layout = QVBoxLayout(left_panel)
         left_layout.setContentsMargins(0, 0, 0, 0)
-        left_layout.setSpacing(10)
+        left_layout.setSpacing(8)
 
         title_label = QLabel("振动学实验室")
-        title_font = QFont("Microsoft YaHei", 17, QFont.Weight.Bold)
+        title_font = QFont("Microsoft YaHei", 15, QFont.Weight.Bold)
         title_label.setFont(title_font)
         title_label.setStyleSheet("color: #1f2937; background: transparent;")
         left_layout.addWidget(title_label)
@@ -430,17 +584,19 @@ class VibrationLabTab(QWidget):
         result_layout.setContentsMargins(14, 16, 14, 14)
         self.result_text = QTextEdit()
         self.result_text.setReadOnly(True)
-        self.result_text.setMinimumHeight(220)
+        self.result_text.setMinimumHeight(160)
         result_layout.addWidget(self.result_text)
-        left_layout.addWidget(self.result_group, 1)
+        left_layout.addWidget(self.result_group)
+        left_layout.addStretch(1)
+        left_scroll.setWidget(left_panel)
 
         right_panel = QWidget()
         right_layout = QVBoxLayout(right_panel)
         right_layout.setContentsMargins(0, 0, 0, 0)
-        right_layout.setSpacing(10)
+        right_layout.setSpacing(8)
 
         self.display_title = QLabel("简谐振动仿真")
-        self.display_title.setFont(QFont("Microsoft YaHei", 15, QFont.Weight.Bold))
+        self.display_title.setFont(QFont("Microsoft YaHei", 14, QFont.Weight.Bold))
         self.display_title.setStyleSheet("color: #1f2937; background: transparent;")
         right_layout.addWidget(self.display_title)
 
@@ -456,37 +612,39 @@ class VibrationLabTab(QWidget):
         spring_layout.addWidget(self.spring_widget)
         single_top_layout.addWidget(spring_group, 2)
 
-        phasor_group = QGroupBox("旋转矢量")
+        phasor_group = QGroupBox("旋转矢量示意")
         phasor_layout = QVBoxLayout(phasor_group)
         phasor_layout.setContentsMargins(12, 16, 12, 12)
         self.phasor_widget = PhasorWidget()
         phasor_layout.addWidget(self.phasor_widget)
-        single_top_layout.addWidget(phasor_group, 1)
-        right_layout.addWidget(self.single_top_widget)
+        single_top_layout.addWidget(phasor_group, 2)
+        self.single_top_widget.setMaximumHeight(250)
 
         self.compound_top_widget = QWidget()
         compound_top_layout = QHBoxLayout(self.compound_top_widget)
         compound_top_layout.setContentsMargins(0, 0, 0, 0)
         compound_top_layout.setSpacing(10)
 
-        summary_group = QGroupBox("合成概览")
-        summary_layout = QVBoxLayout(summary_group)
-        summary_layout.setContentsMargins(14, 18, 14, 14)
+        compound_visual_group = QGroupBox("旋转矢量法与合成概述")
+        compound_visual_layout = QHBoxLayout(compound_visual_group)
+        compound_visual_layout.setContentsMargins(12, 16, 12, 12)
+        compound_visual_layout.setSpacing(12)
+
+        self.compound_phasor_widget = CompoundPhasorWidget()
+        compound_visual_layout.addWidget(self.compound_phasor_widget, 3)
+
         self.compound_summary_label = QLabel()
         self.compound_summary_label.setWordWrap(True)
+        self.compound_summary_label.setTextFormat(Qt.TextFormat.RichText)
+        self.compound_summary_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         self.compound_summary_label.setStyleSheet(
-            "font-size: 12px; line-height: 1.5; background: transparent;"
+            "font-size: 12px; line-height: 1.65; background: transparent; color: #334155; padding-left: 2px;"
         )
-        summary_layout.addWidget(self.compound_summary_label)
-        compound_top_layout.addWidget(summary_group, 1)
-
-        compound_phasor_group = QGroupBox("旋转矢量法")
-        compound_phasor_layout = QVBoxLayout(compound_phasor_group)
-        compound_phasor_layout.setContentsMargins(12, 16, 12, 12)
-        self.compound_phasor_widget = CompoundPhasorWidget()
-        compound_phasor_layout.addWidget(self.compound_phasor_widget)
-        compound_top_layout.addWidget(compound_phasor_group, 2)
-        right_layout.addWidget(self.compound_top_widget)
+        compound_visual_layout.addWidget(self.compound_summary_label, 2)
+        compound_visual_layout.setStretch(0, 4)
+        compound_visual_layout.setStretch(1, 2)
+        compound_top_layout.addWidget(compound_visual_group, 1)
+        self.compound_top_widget.setMaximumHeight(250)
 
         self.curve_group = QGroupBox("运动曲线")
         curve_layout = QVBoxLayout(self.curve_group)
@@ -503,13 +661,24 @@ class VibrationLabTab(QWidget):
         )
         curve_layout.addWidget(self.single_curve_canvas)
         curve_layout.addWidget(self.compound_curve_canvas)
+        self.single_curve_canvas.setMinimumHeight(300)
+        self.compound_curve_canvas.setMinimumHeight(300)
+
+        visual_panel = QWidget()
+        visual_layout = QVBoxLayout(visual_panel)
+        visual_layout.setContentsMargins(0, 0, 0, 0)
+        visual_layout.setSpacing(8)
+        visual_layout.addWidget(self.single_top_widget)
+        visual_layout.addWidget(self.compound_top_widget)
+        visual_panel.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
+        right_layout.addWidget(visual_panel, 0)
         right_layout.addWidget(self.curve_group, 1)
 
-        splitter.addWidget(left_panel)
+        splitter.addWidget(left_scroll)
         splitter.addWidget(right_panel)
         splitter.setStretchFactor(0, 0)
         splitter.setStretchFactor(1, 1)
-        splitter.setSizes([360, 1040])
+        splitter.setSizes([320, 1080])
 
     def _build_single_param_group(self):
         group = QGroupBox("单一简谐振动参数")
@@ -752,7 +921,7 @@ class VibrationLabTab(QWidget):
 
         self.single_curve_canvas.set_series(self.t_values, [self.x_values, self.v_values, self.a_values])
         self.spring_widget.set_state(amplitude, amplitude * np.cos(phase))
-        self.phasor_widget.set_state(amplitude, phase)
+        self.phasor_widget.set_state(amplitude, phase, omega)
         self.update_single_live_widgets()
         self.update_single_result_summary(amplitude, omega, phase, spring, period, frequency, equivalent_mass)
 
@@ -790,7 +959,7 @@ class VibrationLabTab(QWidget):
         a_value = -amplitude * (omega ** 2) * np.cos(theta)
 
         self.spring_widget.set_state(amplitude, x_value)
-        self.phasor_widget.set_state(amplitude, theta)
+        self.phasor_widget.set_state(amplitude, theta, omega)
         self.single_curve_canvas.update_current_time(self.current_time)
         self.live_status_label.setText(
             f"t = {self.current_time:.3f} s | x = {x_value:.3f} cm | "
@@ -815,14 +984,22 @@ class VibrationLabTab(QWidget):
         self.compound_phasor_widget.set_state(amplitude_1, amplitude_2, phase_1, phase_2)
         self.compound_curve_canvas.update_current_time(self.current_time)
         self.compound_summary_label.setText(
-            "\n".join(
-                [
-                    f"A1 = {amplitude_1:.3f} cm, φ1 = {phase_1_initial:.3f} rad",
-                    f"A2 = {amplitude_2:.3f} cm, φ2 = {phase_2_initial:.3f} rad",
-                    f"A合 = {resultant_amplitude:.3f} cm, φ合 = {resultant_phase:.3f} rad",
-                    f"当前相位: θ1 = {phase_1:.3f} rad, θ2 = {phase_2:.3f} rad, θ合 = {current_resultant_phase:.3f} rad",
-                    f"当前位移: x1 = {x1_value:.3f} cm, x2 = {x2_value:.3f} cm, x = {x_sum_value:.3f} cm",
-                ]
+            (
+                "<div style='font-size:12px;'>"
+                "<div style='font-weight:600; color:#0f172a; margin-bottom:6px;'>当前合成状态</div>"
+                f"<div><span style='color:#2f80ed;'>A1</span> = {amplitude_1:.3f} cm, "
+                f"φ1 = {phase_1_initial:.3f} rad</div>"
+                f"<div><span style='color:#27ae60;'>A2</span> = {amplitude_2:.3f} cm, "
+                f"φ2 = {phase_2_initial:.3f} rad</div>"
+                f"<div><span style='color:#e67e22;'>A合</span> = {resultant_amplitude:.3f} cm, "
+                f"φ合 = {resultant_phase:.3f} rad</div>"
+                f"<div style='margin-top:8px;'>Δφ = {(phase_2_initial - phase_1_initial):.3f} rad</div>"
+                f"<div>θ1 = {phase_1:.3f} rad, θ2 = {phase_2:.3f} rad</div>"
+                f"<div>θ合 = {current_resultant_phase:.3f} rad</div>"
+                f"<div style='margin-top:8px;'>x1 = {x1_value:.3f} cm</div>"
+                f"<div>x2 = {x2_value:.3f} cm</div>"
+                f"<div style='font-weight:600; color:#0f172a;'>x = {x_sum_value:.3f} cm</div>"
+                "</div>"
             )
         )
         self.live_status_label.setText(
