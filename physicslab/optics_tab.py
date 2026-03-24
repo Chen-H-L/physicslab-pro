@@ -349,7 +349,12 @@ class OpticsLabTab(QWidget):
     
     def on_experiment_changed(self, text):
         """实验类型改变时的回调"""
+        self.image_control_group.setVisible(False)
+        self.video_control_group.setVisible(False)
+        self.simulation_control_group.setVisible(False)
+
         if text == "分析图片":
+            self.image_control_group.setVisible(True)
             # 显示图片分析控件
             for i in range(self.image_control_group.layout().count()):
                 item = self.image_control_group.layout().itemAt(i)
@@ -380,6 +385,7 @@ class OpticsLabTab(QWidget):
             self.plot_canvas.ax.clear()
             self.plot_canvas.draw()
         elif text == "分析视频":
+            self.video_control_group.setVisible(True)
             # 显示视频分析控件
             for i in range(self.video_control_group.layout().count()):
                 item = self.video_control_group.layout().itemAt(i)
@@ -410,6 +416,7 @@ class OpticsLabTab(QWidget):
             self.plot_canvas.ax.clear()
             self.plot_canvas.draw()
         elif text == "虚拟仿真":
+            self.simulation_control_group.setVisible(True)
             # 隐藏图片分析控件
             for i in range(self.image_control_group.layout().count()):
                 item = self.image_control_group.layout().itemAt(i)

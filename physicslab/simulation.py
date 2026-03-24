@@ -1,7 +1,7 @@
 import numpy as np
 from OpenGL import GL as gl
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QFont, QVector2D
+from PyQt6.QtGui import QColor, QFont, QImage, QPainter, QPen, QVector2D
 from PyQt6.QtOpenGL import QOpenGLBuffer, QOpenGLShader, QOpenGLShaderProgram
 from PyQt6.QtOpenGL import QOpenGLVertexArrayObject
 from PyQt6.QtOpenGLWidgets import QOpenGLWidget
@@ -20,7 +20,7 @@ from PyQt6.QtWidgets import (
 )
 
 
-class SimulationWidget(QOpenGLWidget):
+class LegacyOpenGLSimulationWidget(QOpenGLWidget):
     """OpenGL 仿真显示组件"""
     
     def __init__(self, parent=None):
@@ -359,6 +359,180 @@ class SimulationWidget(QOpenGLWidget):
             self.slit_spacing = kwargs.get('slit_spacing', self.slit_spacing)
         
         self.update()  # 触发重绘
+
+
+class SimulationWidget(QWidget):
+    """Stable CPU simulation widget."""
+
+    _EXPERIMENT_NAMES = {
+        0: "Newton Rings",
+        1: "Wedge Interference",
+        2: "Double Slit",
+    }
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent, True)
+        self.setMinimumSize(320, 240)
+
+        self.experiment_type = 0
+        self.wavelength = 632.8
+        self.scale = 5.0
+        self.radius = 1000.0
+        self.gap_distance = 0.0
+        self.angle = 0.001
+        self.slit_width = 10.0
+        self.slit_spacing = 50.0
+
+        self._cached_image = None
+        self._cache_key = None
+
+    def resizeEvent(self, event):
+        self._invalidate_cache()
+        super().resizeEvent(event)
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.fillRect(self.rect(), QColor('#171e29'))
+
+        image = self._render_pattern()
+        if image is not None:
+            painter.drawImage(self.rect(), image)
+
+        self._draw_overlay(painter)
+        painter.end()
+
+    def update_parameters(self, experiment_type, wavelength, scale=None, **kwargs):
+        self.experiment_type = experiment_type
+        self.wavelength = wavelength
+        if scale is not None:
+            self.scale = scale
+
+        if experiment_type == 0:
+            self.radius = kwargs.get('radius', self.radius)
+            self.gap_distance = kwargs.get('gap_distance', self.gap_distance)
+        elif experiment_type == 1:
+            self.angle = kwargs.get('angle', self.angle)
+            self.gap_distance = kwargs.get('gap_distance', self.gap_distance)
+        elif experiment_type == 2:
+            self.slit_width = kwargs.get('slit_width', self.slit_width)
+            self.slit_spacing = kwargs.get('slit_spacing', self.slit_spacing)
+
+        self._invalidate_cache()
+        self.update()
+
+    def _invalidate_cache(self):
+        self._cached_image = None
+        self._cache_key = None
+
+    def _render_pattern(self):
+        width = max(2, self.width())
+        height = max(2, self.height())
+        cache_key = (
+            width,
+            height,
+            int(self.experiment_type),
+            round(float(self.wavelength), 4),
+            round(float(self.scale), 4),
+            round(float(self.radius), 4),
+            round(float(self.gap_distance), 4),
+            round(float(self.angle), 8),
+            round(float(self.slit_width), 4),
+            round(float(self.slit_spacing), 4),
+        )
+        if cache_key == self._cache_key and self._cached_image is not None:
+            return self._cached_image
+
+        side = float(min(width, height))
+        x = (np.arange(width, dtype=np.float32) - (width - 1) / 2.0) / side
+        y = (((height - 1) / 2.0) - np.arange(height, dtype=np.float32)) / side
+        xx, yy = np.meshgrid(x, y)
+
+        intensity = self._compute_intensity(xx, yy)
+        intensity = np.clip(intensity, 0.0, 1.0).astype(np.float32)
+        intensity = np.power(intensity, 0.85)
+
+        background = np.array([0.08, 0.10, 0.16], dtype=np.float32)
+        base_color = np.array(self._wavelength_to_rgb(self.wavelength), dtype=np.float32)
+        tinted_color = np.clip(base_color * 0.95 + 0.05, 0.0, 1.0)
+        rgb = background + intensity[..., None] * (tinted_color - background)
+        rgb = np.clip(rgb, 0.0, 1.0)
+
+        rgba = np.empty((height, width, 4), dtype=np.uint8)
+        rgba[..., :3] = (rgb * 255.0).astype(np.uint8)
+        rgba[..., 3] = 255
+
+        image = QImage(rgba.data, width, height, width * 4, QImage.Format.Format_RGBA8888).copy()
+        self._cached_image = image
+        self._cache_key = cache_key
+        return image
+
+    def _compute_intensity(self, xx, yy):
+        wavelength = max(float(self.wavelength), 1e-6)
+
+        if self.experiment_type == 0:
+            r_mm = np.hypot(xx, yy) * float(self.scale)
+            r_nm = r_mm * 1_000_000.0
+            radius_nm = max(float(self.radius), 1e-6) * 1_000_000.0
+            d = (r_nm * r_nm) / (2.0 * radius_nm) + float(self.gap_distance)
+            return np.cos(2.0 * np.pi * d / wavelength) ** 2
+
+        if self.experiment_type == 1:
+            x_mm = xx * float(self.scale)
+            d = x_mm * 1_000_000.0 * np.tan(float(self.angle)) + float(self.gap_distance)
+            return np.cos(2.0 * np.pi * d / wavelength) ** 2
+
+        x_mm = xx * 100.0
+        sin_theta = x_mm / 1000.0
+        slit_spacing_nm = max(float(self.slit_spacing), 1e-6) * 1000.0
+        slit_width_nm = max(float(self.slit_width), 1e-6) * 1000.0
+
+        interference_phase = np.pi * slit_spacing_nm * sin_theta / wavelength
+        interference = np.cos(interference_phase) ** 2
+
+        diffraction_phase = np.pi * slit_width_nm * sin_theta / wavelength
+        sinc_value = np.ones_like(diffraction_phase)
+        mask = np.abs(diffraction_phase) > 1e-4
+        sinc_value[mask] = np.sin(diffraction_phase[mask]) / diffraction_phase[mask]
+        diffraction = sinc_value ** 2
+        return interference * diffraction
+
+    def _draw_overlay(self, painter):
+        painter.setPen(QPen(QColor(255, 255, 255, 55), 1))
+        painter.drawRoundedRect(self.rect().adjusted(1, 1, -2, -2), 8, 8)
+
+        badge_rect = self.rect().adjusted(14, 12, -14, -self.height() + 42)
+        painter.fillRect(badge_rect, QColor(10, 16, 28, 150))
+        painter.setPen(QColor('#edf3ff'))
+        painter.drawText(
+            badge_rect.adjusted(10, 0, -10, 0),
+            Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
+            f"{self._EXPERIMENT_NAMES.get(self.experiment_type, 'Optical Simulation')}  |  Compatible Render",
+        )
+
+    @staticmethod
+    def _wavelength_to_rgb(wavelength_nm):
+        wavelength_nm = float(wavelength_nm)
+        if wavelength_nm < 400.0:
+            return (0.5, 0.0, 1.0)
+        if wavelength_nm > 700.0:
+            return (1.0, 0.0, 0.0)
+        if wavelength_nm < 440.0:
+            return (
+                -(wavelength_nm - 440.0) / 40.0,
+                0.0,
+                1.0,
+            )
+        if wavelength_nm < 490.0:
+            return (0.0, (wavelength_nm - 440.0) / 50.0, 1.0)
+        if wavelength_nm < 510.0:
+            return (0.0, 1.0, -(wavelength_nm - 510.0) / 20.0)
+        if wavelength_nm < 580.0:
+            return ((wavelength_nm - 510.0) / 70.0, 1.0, 0.0)
+        if wavelength_nm < 645.0:
+            return (1.0, -(wavelength_nm - 645.0) / 65.0, 0.0)
+        return (1.0, 0.0, 0.0)
 
 
 class VirtualLabTab(QWidget):
