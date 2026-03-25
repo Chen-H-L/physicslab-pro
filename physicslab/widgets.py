@@ -277,6 +277,32 @@ class MatplotlibCanvas(FigureCanvas):
         self.ax.xaxis.label.set_color(self.theme['text'])
         self.ax.yaxis.label.set_color(self.theme['text'])
         self.ax.title.set_color(self.theme['text'])
+
+    def apply_compact_layout(self):
+        """Use fixed margins to keep plots inside the canvas."""
+        self.fig.subplots_adjust(left=0.11, right=0.985, top=0.90, bottom=0.18)
+
+    @staticmethod
+    def compute_signal_limits(*series):
+        """Compute stable y-axis limits from one or more signals."""
+        valid_arrays = []
+        for data in series:
+            if data is None:
+                continue
+            array = np.asarray(data, dtype=float)
+            if array.size == 0:
+                continue
+            valid_arrays.append(array)
+
+        if not valid_arrays:
+            return None
+
+        combined = np.concatenate(valid_arrays)
+        y_min = float(np.min(combined))
+        y_max = float(np.max(combined))
+        y_range = y_max - y_min
+        padding = max(y_range * 0.12, 1.0) if y_range > 0 else max(abs(y_max) * 0.08, 1.0)
+        return y_min - padding, y_max + padding
     
     def plot_intensity_curve(self, distances, intensities, peaks=None, peak_positions=None):
         """绘制亮度分布曲线（静态图像分析）"""
@@ -297,7 +323,7 @@ class MatplotlibCanvas(FigureCanvas):
         self.ax.grid(True, alpha=0.3, color=self.theme['grid'], linestyle='--')
         self.ax.legend(loc='best', framealpha=0.8)
         
-        self.fig.tight_layout()
+        self.apply_compact_layout()
         self.draw()
     
     def plot_realtime_signal(self, frame_numbers, intensities, smoothed_intensities=None, 
@@ -318,16 +344,16 @@ class MatplotlibCanvas(FigureCanvas):
             start_idx = 0
         
         # 绘制原始信号（较淡，作为背景）
-        self.ax.plot(frame_numbers, intensities, 'b-', linewidth=1, 
-                    alpha=0.6, label='原始信号', zorder=1)
+        self.ax.plot(frame_numbers, intensities, 'b-', linewidth=1,
+                    alpha=0.6, label='\u539f\u59cb\u4fe1\u53f7', zorder=1, clip_on=True)
         
         # 绘制平滑后的信号（更明显）
         if smoothed_intensities is not None and len(smoothed_intensities) > 0:
             # 确保长度匹配
             min_len = min(len(frame_numbers), len(smoothed_intensities))
             if min_len > 0:
-                self.ax.plot(frame_numbers[:min_len], smoothed_intensities[:min_len], 
-                           'lime', linewidth=2.5, label='平滑信号', zorder=2)
+                self.ax.plot(frame_numbers[:min_len], smoothed_intensities[:min_len],
+                           'lime', linewidth=2.5, label='\u5e73\u6ed1\u4fe1\u53f7', zorder=2, clip_on=True)
         
         self.ax.set_xlabel('帧数', color=self.theme['text'])
         self.ax.set_ylabel('亮度值', color=self.theme['text'])
@@ -337,17 +363,15 @@ class MatplotlibCanvas(FigureCanvas):
         # 固定图例位置，避免乱飞
         self.ax.legend(loc='upper right', framealpha=0.9, fontsize=9)
         
-        # 自动调整坐标轴范围
+        # Adjust the axes using both raw and smoothed signals.
         if len(frame_numbers) > 0:
             self.ax.set_xlim(frame_numbers[0] - 2, frame_numbers[-1] + 2)
-            if len(intensities) > 0:
-                y_min = min(intensities)
-                y_max = max(intensities)
-                y_range = y_max - y_min
-                if y_range > 0:
-                    self.ax.set_ylim(y_min - y_range * 0.1, y_max + y_range * 0.1)
-        
-        self.fig.tight_layout()
+            signal_limits = self.compute_signal_limits(intensities, smoothed_intensities)
+            if signal_limits is not None:
+                self.ax.set_ylim(*signal_limits)
+            self.ax.margins(x=0.02, y=0.0)
+
+        self.apply_compact_layout()
         self.draw()
 
     def plot_boxplot(self, data, title='箱型图', xlabel='数据', ylabel='数值'):
@@ -381,7 +405,7 @@ class MatplotlibCanvas(FigureCanvas):
         self.ax.grid(True, alpha=0.3, color=self.theme['grid'], linestyle='--')
 
         self.apply_theme()
-        self.fig.tight_layout()
+        self.apply_compact_layout()
         self.draw()
 
     def plot_line_chart(self, x_data, y_data, title='折线图', xlabel='X', ylabel='Y'):
@@ -411,7 +435,7 @@ class MatplotlibCanvas(FigureCanvas):
         self.ax.grid(True, alpha=0.3, color=self.theme['grid'], linestyle='--')
 
         self.apply_theme()
-        self.fig.tight_layout()
+        self.apply_compact_layout()
         self.draw()
 
     def plot_bar_chart(self, x_data, y_data, title='柱状图', xlabel='X', ylabel='Y'):
@@ -443,7 +467,7 @@ class MatplotlibCanvas(FigureCanvas):
         self.ax.grid(True, alpha=0.3, color=self.theme['grid'], linestyle='--', axis='y')
 
         self.apply_theme()
-        self.fig.tight_layout()
+        self.apply_compact_layout()
         self.draw()
 
     def plot_scatter(self, x_data, y_data, title='散点图', xlabel='X', ylabel='Y'):
@@ -478,7 +502,7 @@ class MatplotlibCanvas(FigureCanvas):
         self.ax.grid(True, alpha=0.3, color=self.theme['grid'], linestyle='--')
 
         self.apply_theme()
-        self.fig.tight_layout()
+        self.apply_compact_layout()
         self.draw()
 
     def plot_histogram(self, data, title='直方图', xlabel='数值', ylabel='频数', bins=None):
@@ -519,5 +543,5 @@ class MatplotlibCanvas(FigureCanvas):
         self.ax.legend(loc='best', framealpha=0.9)
 
         self.apply_theme()
-        self.fig.tight_layout()
+        self.apply_compact_layout()
         self.draw()

@@ -813,14 +813,14 @@ class OpticsLabTab(QWidget):
             
             # 绘制原始信号
             self.plot_canvas.ax.plot(self.frame_numbers, self.intensities_raw, 'b-', linewidth=1, 
-                                   alpha=0.6, label='原始信号', zorder=1)
+                                   alpha=0.6, label='\u539f\u59cb\u4fe1\u53f7', zorder=1, clip_on=True)
             
             # 绘制平滑后的信号
             if self.intensities_smoothed and len(self.intensities_smoothed) > 0:
                 min_len = min(len(self.frame_numbers), len(self.intensities_smoothed))
                 if min_len > 0:
                     self.plot_canvas.ax.plot(self.frame_numbers[:min_len], self.intensities_smoothed[:min_len], 
-                                           'lime', linewidth=2, label='平滑信号', zorder=2)
+                                           'lime', linewidth=2, label='\u5e73\u6ed1\u4fe1\u53f7', zorder=2, clip_on=True)
             
             self.plot_canvas.ax.set_xlabel('帧数', color=self.plot_canvas.theme['text'])
             self.plot_canvas.ax.set_ylabel('亮度值', color=self.plot_canvas.theme['text'])
@@ -830,15 +830,18 @@ class OpticsLabTab(QWidget):
             # 固定图例位置
             self.plot_canvas.ax.legend(loc='upper right', framealpha=0.9, fontsize=9)
             
-            # 自动调整坐标轴范围
+            # Adjust the axes using both raw and smoothed signals.
             self.plot_canvas.ax.set_xlim(self.frame_numbers[0] - 2, self.frame_numbers[-1] + 2)
-            y_min = min(self.intensities_raw)
-            y_max = max(self.intensities_raw)
-            y_range = y_max - y_min
-            if y_range > 0:
-                self.plot_canvas.ax.set_ylim(y_min - y_range * 0.1, y_max + y_range * 0.1)
-            
-            self.plot_canvas.fig.tight_layout()
+            min_len = min(len(self.frame_numbers), len(self.intensities_smoothed)) if self.intensities_smoothed else 0
+            signal_limits = self.plot_canvas.compute_signal_limits(
+                self.intensities_raw,
+                self.intensities_smoothed[:min_len] if min_len > 0 else None,
+            )
+            if signal_limits is not None:
+                self.plot_canvas.ax.set_ylim(*signal_limits)
+            self.plot_canvas.ax.margins(x=0.02, y=0.0)
+
+            self.plot_canvas.apply_compact_layout()
             self.plot_canvas.draw()
     
     def on_export_signal(self):

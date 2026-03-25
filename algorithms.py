@@ -193,8 +193,8 @@ def extract_center_intensity(
 
 def smooth_signal(
     signal: np.ndarray,
-    window_length: int = 11,
-    polyorder: int = 3
+    window_length: int = 15,
+    polyorder: int = 2
 ) -> np.ndarray:
     """
     使用 Savitzky-Golay 滤波器平滑信号

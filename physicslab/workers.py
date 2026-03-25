@@ -133,19 +133,17 @@ class VideoWorker(QThread):
                 intensities_raw.append(intensity)
                 frame_numbers.append(frame_count)
                 
-                # 平滑处理（需要至少 21 个数据点）
-                if len(intensities_raw) >= 21:
-                    # 增加窗口长度以获得更明显的平滑效果
-                    smoothed = smooth_signal(np.array(intensities_raw), window_length=21, polyorder=3)
+                # Use a larger SG window for longer sequences.
+                if len(intensities_raw) >= 31:
+                    smoothed = smooth_signal(np.array(intensities_raw), window_length=31, polyorder=2)
                     intensities_smoothed = smoothed.tolist()
                     
                     # 实时波峰检测（在平滑后的信号上）
                     if len(intensities_smoothed) >= 10:
                         current_smoothed = intensities_smoothed[-1]
                         peak_count = count_peaks_in_signal(np.array(intensities_smoothed))
-                elif len(intensities_raw) >= 11:
-                    # 当数据点在11-20之间时，使用较小的窗口
-                    smoothed = smooth_signal(np.array(intensities_raw), window_length=11, polyorder=3)
+                elif len(intensities_raw) >= 15:
+                    smoothed = smooth_signal(np.array(intensities_raw), window_length=15, polyorder=2)
                     intensities_smoothed = smoothed.tolist()
                     if len(intensities_smoothed) >= 10:
                         current_smoothed = intensities_smoothed[-1]
