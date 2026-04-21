@@ -7,33 +7,44 @@ from algorithms import count_peaks_in_signal, extract_center_intensity, smooth_s
 
 
 class LLMWorker(QThread):
-    """LLM 对话工作线程 - 调用 DeepSeek API"""
+    """LLM 对话工作线程。"""
     
     # 定义信号
     response_ready = pyqtSignal(str)  # 传输 AI 返回的文本
     error_occurred = pyqtSignal(str)  # 传输错误信息
     
-    def __init__(self, api_key: str, user_question: str, context_data: str = ""):
+    def __init__(
+        self,
+        api_key: str,
+        user_question: str,
+        context_data: str = "",
+        base_url: str = "https://api.deepseek.com",
+        model: str = "deepseek-chat",
+    ):
         """
         初始化 LLMWorker
         
         参数:
-            api_key: DeepSeek API 密钥
+            api_key: API 密钥
             user_question: 用户提问
             context_data: 上下文数据（可选）
+            base_url: 接口地址
+            model: 模型名称
         """
         super().__init__()
         self.api_key = api_key
         self.user_question = user_question
         self.context_data = context_data
+        self.base_url = base_url.rstrip("/")
+        self.model = model
     
     def run(self):
         """执行 LLM 对话"""
         try:
-            # 初始化 OpenAI 客户端（使用 DeepSeek 的 API 端点）
+            # 初始化 OpenAI 客户端
             client = OpenAI(
                 api_key=self.api_key,
-                base_url="https://api.deepseek.com"
+                base_url=self.base_url
             )
             
             # 构造 System Prompt
@@ -57,9 +68,9 @@ class LLMWorker(QThread):
             if self.context_data.strip():
                 user_message = f"{self.user_question}\n\n背景信息:\n{self.context_data}"
             
-            # 调用 DeepSeek API
+            # 调用 AI 接口
             message = client.chat.completions.create(
-                model="deepseek-chat",
+                model=self.model,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_message}

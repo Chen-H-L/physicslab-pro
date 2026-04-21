@@ -1,4 +1,5 @@
 import time
+from fractions import Fraction
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -377,9 +378,174 @@ class MotionCurveCanvas(FigureCanvas):
         self.draw_idle()
 
 
+class EnvelopeCanvas(FigureCanvas):
+    def __init__(self, parent=None):
+        self.figure = Figure(figsize=(8, 2.4), dpi=100, facecolor="#f8f9fa")
+        super().__init__(self.figure)
+        self.setParent(parent)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.axis = self.figure.subplots(1, 1)
+        self.times = np.array([0.0, 1.0])
+        self.signal = np.zeros(2)
+        self.envelope = np.ones(2)
+        self.current_time = 0.0
+        self.title = "合振动与理论包络"
+        self.cursor_line = None
+        self.signal_marker = None
+        self.upper_marker = None
+        self.lower_marker = None
+        self._render_axis()
+
+    def _render_axis(self):
+        self.axis.clear()
+        self.axis.set_facecolor("#ffffff")
+        self.axis.fill_between(self.times, self.envelope, -self.envelope, color="#dbeafe", alpha=0.22)
+        self.axis.plot(self.times, self.signal, color="#e67e22", linewidth=2.2, label="合振动")
+        self.axis.plot(self.times, self.envelope, color="#2563eb", linestyle="--", linewidth=1.8, label="上包络")
+        self.axis.plot(self.times, -self.envelope, color="#2563eb", linestyle="--", linewidth=1.8, label="下包络")
+
+        self.cursor_line = self.axis.axvline(self.current_time, color="#e11d48", linestyle="--", linewidth=1.3)
+        current_signal = float(np.interp(self.current_time, self.times, self.signal))
+        current_env = float(np.interp(self.current_time, self.times, self.envelope))
+        self.signal_marker, = self.axis.plot(
+            [self.current_time],
+            [current_signal],
+            "o",
+            color="#111827",
+            markersize=5,
+        )
+        self.upper_marker, = self.axis.plot(
+            [self.current_time],
+            [current_env],
+            "o",
+            color="#2563eb",
+            markersize=4,
+        )
+        self.lower_marker, = self.axis.plot(
+            [self.current_time],
+            [-current_env],
+            "o",
+            color="#2563eb",
+            markersize=4,
+        )
+
+        self.axis.grid(True, linestyle="--", alpha=0.28, color="#cbd5e1")
+        self.axis.set_title(self.title, loc="left", fontsize=11, color="#1f2937", pad=8)
+        self.axis.set_ylabel("x (cm)", color="#334155")
+        self.axis.set_xlabel("t (s)", color="#334155")
+        self.axis.tick_params(colors="#475569")
+        for spine in self.axis.spines.values():
+            spine.set_color("#cbd5e1")
+
+        self.axis.set_xlim(float(self.times[0]), float(self.times[-1]))
+        amplitude_max = max(float(np.max(np.abs(self.signal))), float(np.max(self.envelope)), 1.0)
+        pad = max(1.0, amplitude_max * 0.18)
+        self.axis.set_ylim(-amplitude_max - pad, amplitude_max + pad)
+        self.axis.legend(loc="upper right", fontsize=8, frameon=False, ncol=3)
+        self.figure.tight_layout(pad=1.4)
+        self.draw_idle()
+
+    def set_series(self, times, signal, envelope, title):
+        self.times = np.asarray(times, dtype=float)
+        self.signal = np.asarray(signal, dtype=float)
+        self.envelope = np.maximum(0.0, np.asarray(envelope, dtype=float))
+        self.title = title
+        if self.current_time < float(self.times[0]) or self.current_time > float(self.times[-1]):
+            self.current_time = float(self.times[0])
+        self._render_axis()
+
+    def update_current_time(self, current_time: float):
+        if self.times.size == 0:
+            return
+        self.current_time = float(np.clip(current_time, float(self.times[0]), float(self.times[-1])))
+        current_signal = float(np.interp(self.current_time, self.times, self.signal))
+        current_env = float(np.interp(self.current_time, self.times, self.envelope))
+        self.cursor_line.set_xdata([self.current_time, self.current_time])
+        self.signal_marker.set_data([self.current_time], [current_signal])
+        self.upper_marker.set_data([self.current_time], [current_env])
+        self.lower_marker.set_data([self.current_time], [-current_env])
+        self.draw_idle()
+
+
+class TrajectoryCanvas(FigureCanvas):
+    def __init__(self, parent=None):
+        self.figure = Figure(figsize=(5.8, 3.0), dpi=100, facecolor="#f8f9fa")
+        super().__init__(self.figure)
+        self.setParent(parent)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.axis = self.figure.subplots(1, 1)
+        self.times = np.array([0.0, 1.0])
+        self.x_values = np.zeros(2)
+        self.y_values = np.zeros(2)
+        self.current_time = 0.0
+        self.title = "合振动轨迹"
+        self.cursor_marker = None
+        self._render_axis()
+
+    def _render_axis(self):
+        self.axis.clear()
+        self.axis.set_facecolor("#ffffff")
+        self.axis.plot(self.x_values, self.y_values, color="#2f80ed", linewidth=2.2)
+        current_x = float(np.interp(self.current_time, self.times, self.x_values))
+        current_y = float(np.interp(self.current_time, self.times, self.y_values))
+        self.cursor_marker = self.axis.plot(
+            [current_x],
+            [current_y],
+            "o",
+            color="#e67e22",
+            markersize=6,
+        )[0]
+        self.axis.axhline(0.0, color="#cbd5e1", linewidth=1.0, linestyle="--")
+        self.axis.axvline(0.0, color="#cbd5e1", linewidth=1.0, linestyle="--")
+        self.axis.grid(True, linestyle="--", alpha=0.28, color="#cbd5e1")
+        self.axis.set_title(self.title, loc="left", fontsize=11, color="#1f2937", pad=8)
+        self.axis.set_xlabel("x (cm)", color="#334155")
+        self.axis.set_ylabel("y (cm)", color="#334155")
+        self.axis.tick_params(colors="#475569")
+        for spine in self.axis.spines.values():
+            spine.set_color("#cbd5e1")
+
+        max_extent = max(
+            float(np.max(np.abs(self.x_values))),
+            float(np.max(np.abs(self.y_values))),
+            1.0,
+        )
+        pad = max(1.0, max_extent * 0.18)
+        self.axis.set_xlim(-max_extent - pad, max_extent + pad)
+        self.axis.set_ylim(-max_extent - pad, max_extent + pad)
+        self.axis.set_aspect("equal", adjustable="box")
+        self.figure.tight_layout(pad=1.4)
+        self.draw_idle()
+
+    def set_series(self, times, x_values, y_values, title):
+        self.times = np.asarray(times, dtype=float)
+        self.x_values = np.asarray(x_values, dtype=float)
+        self.y_values = np.asarray(y_values, dtype=float)
+        self.title = title
+        if self.current_time < float(self.times[0]) or self.current_time > float(self.times[-1]):
+            self.current_time = float(self.times[0])
+        self._render_axis()
+
+    def update_current_time(self, current_time: float):
+        if self.times.size == 0:
+            return
+        self.current_time = float(np.clip(current_time, float(self.times[0]), float(self.times[-1])))
+        current_x = float(np.interp(self.current_time, self.times, self.x_values))
+        current_y = float(np.interp(self.current_time, self.times, self.y_values))
+        self.cursor_marker.set_data([current_x], [current_y])
+        self.draw_idle()
+
+
 class VibrationLabTab(QWidget):
     SINGLE_MODE = "单一简谐振动"
     COMPOUND_MODE = "同方向同频率合成"
+    DIFF_FREQ_MODE = "同方向不同频率合成"
+    ORTHOGONAL_MODE = "方向垂直同频率合成"
+    ORTHOGONAL_DIFF_MODE = "方向垂直不同频率合成"
+    ORTHOGONAL_DIFF_MANUAL = "手动输入"
+
+    DIFF_SPECIAL_CASE = "特殊情况：A1=A2，φ1=φ2"
+    DIFF_GENERAL_CASE = "一般情况：A1、ω1、φ1 与 A2、ω2、φ2 不同"
 
     SINGLE_TITLES = ["位移 x/t 曲线", "速度 v/t 曲线", "加速度 a/t 曲线"]
     SINGLE_YLABELS = ["x (cm)", "v (cm/s)", "a (cm/s^2)"]
@@ -388,6 +554,10 @@ class VibrationLabTab(QWidget):
     COMPOUND_TITLES = ["分振动 1 的 x1/t", "分振动 2 的 x2/t", "合振动 x/t"]
     COMPOUND_YLABELS = ["x1 (cm)", "x2 (cm)", "x (cm)"]
     COMPOUND_COLORS = ["#2f80ed", "#27ae60", "#e67e22"]
+
+    ORTHOGONAL_TITLES = ["x 方向分振动 x/t", "y 方向分振动 y/t"]
+    ORTHOGONAL_YLABELS = ["x (cm)", "y (cm)"]
+    ORTHOGONAL_COLORS = ["#2f80ed", "#27ae60"]
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -402,6 +572,10 @@ class VibrationLabTab(QWidget):
         self.x1_values = np.zeros_like(self.t_values)
         self.x2_values = np.zeros_like(self.t_values)
         self.x_sum_values = np.zeros_like(self.t_values)
+        self.diff_envelope_values = np.zeros_like(self.t_values)
+        self.orth_x_values = np.zeros_like(self.t_values)
+        self.orth_y_values = np.zeros_like(self.t_values)
+        self._updating_orthogonal_diff_preset = False
 
         self.timer = QTimer(self)
         self.timer.setInterval(30)
@@ -505,7 +679,15 @@ class VibrationLabTab(QWidget):
         mode_layout.setContentsMargins(14, 16, 14, 14)
         self.mode_combo = QComboBox()
         self.mode_combo.setMinimumHeight(36)
-        self.mode_combo.addItems([self.SINGLE_MODE, self.COMPOUND_MODE])
+        self.mode_combo.addItems(
+            [
+                self.SINGLE_MODE,
+                self.COMPOUND_MODE,
+                self.DIFF_FREQ_MODE,
+                self.ORTHOGONAL_MODE,
+                self.ORTHOGONAL_DIFF_MODE,
+            ]
+        )
         self.mode_combo.currentTextChanged.connect(self.on_mode_changed)
         mode_layout.addWidget(QLabel("选择当前实验内容"))
         mode_layout.addWidget(self.mode_combo)
@@ -513,14 +695,26 @@ class VibrationLabTab(QWidget):
 
         self.single_param_group = self._build_single_param_group()
         self.compound_param_group = self._build_compound_param_group()
+        self.diff_freq_param_group = self._build_diff_freq_param_group()
+        self.orthogonal_param_group = self._build_orthogonal_param_group()
+        self.orthogonal_diff_param_group = self._build_orthogonal_diff_param_group()
         self.single_derived_group = self._build_single_derived_group()
         self.compound_derived_group = self._build_compound_derived_group()
+        self.diff_freq_derived_group = self._build_diff_freq_derived_group()
+        self.orthogonal_derived_group = self._build_orthogonal_derived_group()
+        self.orthogonal_diff_derived_group = self._build_orthogonal_diff_derived_group()
         self.control_group = self._build_control_group()
 
         left_layout.addWidget(self.single_param_group)
         left_layout.addWidget(self.compound_param_group)
+        left_layout.addWidget(self.diff_freq_param_group)
+        left_layout.addWidget(self.orthogonal_param_group)
+        left_layout.addWidget(self.orthogonal_diff_param_group)
         left_layout.addWidget(self.single_derived_group)
         left_layout.addWidget(self.compound_derived_group)
+        left_layout.addWidget(self.diff_freq_derived_group)
+        left_layout.addWidget(self.orthogonal_derived_group)
+        left_layout.addWidget(self.orthogonal_diff_derived_group)
         left_layout.addWidget(self.control_group)
 
         self.result_group = QGroupBox("实验说明")
@@ -569,7 +763,7 @@ class VibrationLabTab(QWidget):
         compound_top_layout.setContentsMargins(0, 0, 0, 0)
         compound_top_layout.setSpacing(10)
 
-        compound_visual_group = QGroupBox("旋转矢量法与合成概述")
+        compound_visual_group = QGroupBox("旋转矢量法与合成概览")
         compound_visual_layout = QHBoxLayout(compound_visual_group)
         compound_visual_layout.setContentsMargins(12, 16, 12, 12)
         compound_visual_layout.setSpacing(12)
@@ -590,6 +784,58 @@ class VibrationLabTab(QWidget):
         compound_top_layout.addWidget(compound_visual_group, 1)
         self.compound_top_widget.setMaximumHeight(250)
 
+        self.diff_freq_top_widget = QWidget()
+        diff_top_layout = QHBoxLayout(self.diff_freq_top_widget)
+        diff_top_layout.setContentsMargins(0, 0, 0, 0)
+        diff_top_layout.setSpacing(10)
+
+        diff_visual_group = QGroupBox("不同频率合成概览")
+        diff_visual_layout = QHBoxLayout(diff_visual_group)
+        diff_visual_layout.setContentsMargins(12, 16, 12, 12)
+        diff_visual_layout.setSpacing(12)
+
+        self.diff_freq_phasor_widget = CompoundPhasorWidget()
+        diff_visual_layout.addWidget(self.diff_freq_phasor_widget, 3)
+
+        self.diff_freq_summary_label = QLabel()
+        self.diff_freq_summary_label.setWordWrap(True)
+        self.diff_freq_summary_label.setTextFormat(Qt.TextFormat.RichText)
+        self.diff_freq_summary_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        self.diff_freq_summary_label.setStyleSheet(
+            "font-size: 12px; line-height: 1.65; background: transparent; color: #334155; padding-left: 2px;"
+        )
+        diff_visual_layout.addWidget(self.diff_freq_summary_label, 2)
+        diff_visual_layout.setStretch(0, 4)
+        diff_visual_layout.setStretch(1, 2)
+        diff_top_layout.addWidget(diff_visual_group, 1)
+        self.diff_freq_top_widget.setMaximumHeight(250)
+
+        self.orthogonal_top_widget = QWidget()
+        orthogonal_top_layout = QHBoxLayout(self.orthogonal_top_widget)
+        orthogonal_top_layout.setContentsMargins(0, 0, 0, 0)
+        orthogonal_top_layout.setSpacing(10)
+
+        orthogonal_visual_group = QGroupBox("合振动轨迹与概览")
+        orthogonal_visual_layout = QHBoxLayout(orthogonal_visual_group)
+        orthogonal_visual_layout.setContentsMargins(12, 16, 12, 12)
+        orthogonal_visual_layout.setSpacing(12)
+
+        self.trajectory_canvas = TrajectoryCanvas()
+        orthogonal_visual_layout.addWidget(self.trajectory_canvas, 3)
+
+        self.orthogonal_summary_label = QLabel()
+        self.orthogonal_summary_label.setWordWrap(True)
+        self.orthogonal_summary_label.setTextFormat(Qt.TextFormat.RichText)
+        self.orthogonal_summary_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        self.orthogonal_summary_label.setStyleSheet(
+            "font-size: 12px; line-height: 1.65; background: transparent; color: #334155; padding-left: 2px;"
+        )
+        orthogonal_visual_layout.addWidget(self.orthogonal_summary_label, 2)
+        orthogonal_visual_layout.setStretch(0, 4)
+        orthogonal_visual_layout.setStretch(1, 2)
+        orthogonal_top_layout.addWidget(orthogonal_visual_group, 1)
+        self.orthogonal_top_widget.setMaximumHeight(250)
+
         self.curve_group = QGroupBox("运动曲线")
         curve_layout = QVBoxLayout(self.curve_group)
         curve_layout.setContentsMargins(12, 16, 12, 12)
@@ -603,10 +849,27 @@ class VibrationLabTab(QWidget):
             self.COMPOUND_YLABELS,
             self.COMPOUND_COLORS,
         )
+        self.diff_freq_curve_canvas = MotionCurveCanvas(
+            self.COMPOUND_TITLES,
+            self.COMPOUND_YLABELS,
+            self.COMPOUND_COLORS,
+        )
+        self.orthogonal_curve_canvas = MotionCurveCanvas(
+            self.ORTHOGONAL_TITLES,
+            self.ORTHOGONAL_YLABELS,
+            self.ORTHOGONAL_COLORS,
+        )
+        self.diff_envelope_canvas = EnvelopeCanvas()
         curve_layout.addWidget(self.single_curve_canvas)
         curve_layout.addWidget(self.compound_curve_canvas)
+        curve_layout.addWidget(self.diff_freq_curve_canvas)
+        curve_layout.addWidget(self.orthogonal_curve_canvas)
+        curve_layout.addWidget(self.diff_envelope_canvas)
         self.single_curve_canvas.setMinimumHeight(300)
         self.compound_curve_canvas.setMinimumHeight(300)
+        self.diff_freq_curve_canvas.setMinimumHeight(240)
+        self.orthogonal_curve_canvas.setMinimumHeight(240)
+        self.diff_envelope_canvas.setMinimumHeight(180)
 
         visual_panel = QWidget()
         visual_layout = QVBoxLayout(visual_panel)
@@ -614,6 +877,8 @@ class VibrationLabTab(QWidget):
         visual_layout.setSpacing(8)
         visual_layout.addWidget(self.single_top_widget)
         visual_layout.addWidget(self.compound_top_widget)
+        visual_layout.addWidget(self.diff_freq_top_widget)
+        visual_layout.addWidget(self.orthogonal_top_widget)
         visual_panel.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
         right_layout.addWidget(visual_panel, 0)
         right_layout.addWidget(self.curve_group, 1)
@@ -691,6 +956,175 @@ class VibrationLabTab(QWidget):
 
         return group
 
+    def _build_diff_freq_param_group(self):
+        group = QGroupBox("同方向不同频率合成参数")
+        layout = QVBoxLayout(group)
+        layout.setContentsMargins(14, 18, 14, 14)
+        layout.setSpacing(8)
+
+        self.diff_case_combo = QComboBox()
+        self.diff_case_combo.setMinimumHeight(36)
+        self.diff_case_combo.addItems([self.DIFF_SPECIAL_CASE, self.DIFF_GENERAL_CASE])
+        self.diff_case_combo.currentTextChanged.connect(self.on_diff_case_changed)
+        layout.addWidget(QLabel("选择当前合成情况"))
+        layout.addWidget(self.diff_case_combo)
+
+        self.diff_special_widget = QWidget()
+        special_layout = QGridLayout(self.diff_special_widget)
+        special_layout.setContentsMargins(0, 4, 0, 0)
+        special_layout.setHorizontalSpacing(8)
+        special_layout.setVerticalSpacing(8)
+
+        self.diff_special_amplitude_spin = self._create_spinbox(0.01, 1_000_000.0, 20.0, " cm", 3, 1.0)
+        self.diff_special_omega_1_spin = self._create_spinbox(0.001, 10_000.0, 3.0, " rad/s", 4, 0.1)
+        self.diff_special_omega_2_spin = self._create_spinbox(0.001, 10_000.0, 3.8, " rad/s", 4, 0.1)
+        self.diff_special_phase_spin = self._create_spinbox(-1_000.0, 1_000.0, 0.0, " rad", 4, 0.1)
+
+        special_rows = [
+            ("共同振幅 A", self.diff_special_amplitude_spin),
+            ("分振动 1 角频率 ω1", self.diff_special_omega_1_spin),
+            ("分振动 2 角频率 ω2", self.diff_special_omega_2_spin),
+            ("共同初相 φ", self.diff_special_phase_spin),
+        ]
+        for row, (text, widget) in enumerate(special_rows):
+            special_layout.addWidget(QLabel(text), row, 0)
+            special_layout.addWidget(widget, row, 1)
+
+        self.diff_general_widget = QWidget()
+        general_layout = QGridLayout(self.diff_general_widget)
+        general_layout.setContentsMargins(0, 4, 0, 0)
+        general_layout.setHorizontalSpacing(8)
+        general_layout.setVerticalSpacing(8)
+
+        self.diff_general_amplitude_1_spin = self._create_spinbox(0.01, 1_000_000.0, 20.0, " cm", 3, 1.0)
+        self.diff_general_phase_1_spin = self._create_spinbox(-1_000.0, 1_000.0, 0.0, " rad", 4, 0.1)
+        self.diff_general_omega_1_spin = self._create_spinbox(0.001, 10_000.0, 3.0, " rad/s", 4, 0.1)
+        self.diff_general_amplitude_2_spin = self._create_spinbox(0.01, 1_000_000.0, 12.0, " cm", 3, 1.0)
+        self.diff_general_phase_2_spin = self._create_spinbox(-1_000.0, 1_000.0, 1.1, " rad", 4, 0.1)
+        self.diff_general_omega_2_spin = self._create_spinbox(0.001, 10_000.0, 4.3, " rad/s", 4, 0.1)
+
+        general_rows = [
+            ("分振动 1 振幅 A1", self.diff_general_amplitude_1_spin),
+            ("分振动 1 初相 φ1", self.diff_general_phase_1_spin),
+            ("分振动 1 角频率 ω1", self.diff_general_omega_1_spin),
+            ("分振动 2 振幅 A2", self.diff_general_amplitude_2_spin),
+            ("分振动 2 初相 φ2", self.diff_general_phase_2_spin),
+            ("分振动 2 角频率 ω2", self.diff_general_omega_2_spin),
+        ]
+        for row, (text, widget) in enumerate(general_rows):
+            general_layout.addWidget(QLabel(text), row, 0)
+            general_layout.addWidget(widget, row, 1)
+
+        for spinbox in (
+            self.diff_special_amplitude_spin,
+            self.diff_special_omega_1_spin,
+            self.diff_special_omega_2_spin,
+            self.diff_special_phase_spin,
+            self.diff_general_amplitude_1_spin,
+            self.diff_general_phase_1_spin,
+            self.diff_general_omega_1_spin,
+            self.diff_general_amplitude_2_spin,
+            self.diff_general_phase_2_spin,
+            self.diff_general_omega_2_spin,
+        ):
+            spinbox.valueChanged.connect(lambda _: self.refresh_current_mode(reset_time=False))
+
+        layout.addWidget(self.diff_special_widget)
+        layout.addWidget(self.diff_general_widget)
+        self.on_diff_case_changed(self.DIFF_SPECIAL_CASE)
+        return group
+
+    def _build_orthogonal_param_group(self):
+        group = QGroupBox("方向垂直同频率合成参数")
+        layout = QGridLayout(group)
+        layout.setContentsMargins(14, 18, 14, 14)
+        layout.setHorizontalSpacing(8)
+        layout.setVerticalSpacing(8)
+
+        self.orthogonal_amplitude_x_spin = self._create_spinbox(0.01, 1_000_000.0, 20.0, " cm", 3, 1.0)
+        self.orthogonal_phase_x_spin = self._create_spinbox(-1_000.0, 1_000.0, 0.0, " rad", 4, 0.1)
+        self.orthogonal_amplitude_y_spin = self._create_spinbox(0.01, 1_000_000.0, 12.0, " cm", 3, 1.0)
+        self.orthogonal_phase_y_spin = self._create_spinbox(-1_000.0, 1_000.0, np.pi / 2, " rad", 4, 0.1)
+        self.orthogonal_omega_spin = self._create_spinbox(0.001, 10_000.0, 3.0, " rad/s", 4, 0.1)
+
+        rows = [
+            ("x 方向振幅 Ax", self.orthogonal_amplitude_x_spin),
+            ("x 方向初相 φx", self.orthogonal_phase_x_spin),
+            ("y 方向振幅 Ay", self.orthogonal_amplitude_y_spin),
+            ("y 方向初相 φy", self.orthogonal_phase_y_spin),
+            ("共同角频率 ω", self.orthogonal_omega_spin),
+        ]
+        for row, (text, widget) in enumerate(rows):
+            layout.addWidget(QLabel(text), row, 0)
+            layout.addWidget(widget, row, 1)
+
+        for spinbox in (
+            self.orthogonal_amplitude_x_spin,
+            self.orthogonal_phase_x_spin,
+            self.orthogonal_amplitude_y_spin,
+            self.orthogonal_phase_y_spin,
+            self.orthogonal_omega_spin,
+        ):
+            spinbox.valueChanged.connect(lambda _: self.refresh_current_mode(reset_time=False))
+
+        return group
+
+    def _build_orthogonal_diff_param_group(self):
+        group = QGroupBox("方向垂直不同频率合成参数")
+        layout = QGridLayout(group)
+        layout.setContentsMargins(14, 18, 14, 14)
+        layout.setHorizontalSpacing(8)
+        layout.setVerticalSpacing(8)
+
+        self.orthogonal_diff_preset_combo = QComboBox()
+        self.orthogonal_diff_preset_combo.setMinimumHeight(36)
+        self.orthogonal_diff_preset_combo.addItems(
+            [
+                self.ORTHOGONAL_DIFF_MANUAL,
+                "1:1 直线",
+                "1:1 圆",
+                "1:2 李萨如",
+                "2:1 李萨如",
+                "2:3 李萨如",
+                "3:4 李萨如",
+            ]
+        )
+        self.orthogonal_diff_preset_combo.currentTextChanged.connect(self.on_orthogonal_diff_preset_changed)
+        layout.addWidget(QLabel("常用预设"), 0, 0)
+        layout.addWidget(self.orthogonal_diff_preset_combo, 0, 1)
+
+        self.orthogonal_diff_amplitude_x_spin = self._create_spinbox(0.01, 1_000_000.0, 20.0, " cm", 3, 1.0)
+        self.orthogonal_diff_phase_x_spin = self._create_spinbox(-1_000.0, 1_000.0, 0.0, " rad", 4, 0.1)
+        self.orthogonal_diff_omega_x_spin = self._create_spinbox(0.001, 10_000.0, 3.0, " rad/s", 4, 0.1)
+        self.orthogonal_diff_amplitude_y_spin = self._create_spinbox(0.01, 1_000_000.0, 12.0, " cm", 3, 1.0)
+        self.orthogonal_diff_phase_y_spin = self._create_spinbox(-1_000.0, 1_000.0, 1.1, " rad", 4, 0.1)
+        self.orthogonal_diff_omega_y_spin = self._create_spinbox(0.001, 10_000.0, 4.0, " rad/s", 4, 0.1)
+
+        rows = [
+            ("x 方向振幅 A1", self.orthogonal_diff_amplitude_x_spin),
+            ("x 方向初相 φ1", self.orthogonal_diff_phase_x_spin),
+            ("x 方向角频率 ω1", self.orthogonal_diff_omega_x_spin),
+            ("y 方向振幅 A2", self.orthogonal_diff_amplitude_y_spin),
+            ("y 方向初相 φ2", self.orthogonal_diff_phase_y_spin),
+            ("y 方向角频率 ω2", self.orthogonal_diff_omega_y_spin),
+        ]
+        for row, (text, widget) in enumerate(rows):
+            layout.addWidget(QLabel(text), row + 1, 0)
+            layout.addWidget(widget, row + 1, 1)
+
+        self.orthogonal_diff_spinboxes = (
+            self.orthogonal_diff_amplitude_x_spin,
+            self.orthogonal_diff_phase_x_spin,
+            self.orthogonal_diff_omega_x_spin,
+            self.orthogonal_diff_amplitude_y_spin,
+            self.orthogonal_diff_phase_y_spin,
+            self.orthogonal_diff_omega_y_spin,
+        )
+        for spinbox in self.orthogonal_diff_spinboxes:
+            spinbox.valueChanged.connect(self.on_orthogonal_diff_spinbox_changed)
+
+        return group
+
     def _build_single_derived_group(self):
         group = QGroupBox("单振动推导量")
         layout = QGridLayout(group)
@@ -737,6 +1171,81 @@ class VibrationLabTab(QWidget):
 
         return group
 
+    def _build_diff_freq_derived_group(self):
+        group = QGroupBox("不同频率合成推导量")
+        layout = QGridLayout(group)
+        layout.setContentsMargins(14, 18, 14, 14)
+        layout.setHorizontalSpacing(8)
+        layout.setVerticalSpacing(8)
+
+        self.diff_omega_1_label = QLabel()
+        self.diff_omega_2_label = QLabel()
+        self.diff_delta_omega_label = QLabel()
+        self.diff_feature_label = QLabel()
+        self.diff_feature_label.setWordWrap(True)
+
+        rows = [
+            ("分振动 1 角频率", self.diff_omega_1_label),
+            ("分振动 2 角频率", self.diff_omega_2_label),
+            ("角频率差 Δω", self.diff_delta_omega_label),
+            ("主要特征", self.diff_feature_label),
+        ]
+        for row, (text, label) in enumerate(rows):
+            layout.addWidget(QLabel(text), row, 0)
+            layout.addWidget(label, row, 1)
+
+        return group
+
+    def _build_orthogonal_derived_group(self):
+        group = QGroupBox("垂直合成推导量")
+        layout = QGridLayout(group)
+        layout.setContentsMargins(14, 18, 14, 14)
+        layout.setHorizontalSpacing(8)
+        layout.setVerticalSpacing(8)
+
+        self.orthogonal_omega_label = QLabel()
+        self.orthogonal_period_label = QLabel()
+        self.orthogonal_delta_phase_label = QLabel()
+        self.orthogonal_type_label = QLabel()
+        self.orthogonal_type_label.setWordWrap(True)
+
+        rows = [
+            ("共同角频率", self.orthogonal_omega_label),
+            ("共同周期", self.orthogonal_period_label),
+            ("相位差 Δφ", self.orthogonal_delta_phase_label),
+            ("轨迹类型", self.orthogonal_type_label),
+        ]
+        for row, (text, label) in enumerate(rows):
+            layout.addWidget(QLabel(text), row, 0)
+            layout.addWidget(label, row, 1)
+
+        return group
+
+    def _build_orthogonal_diff_derived_group(self):
+        group = QGroupBox("李萨如图形推导量")
+        layout = QGridLayout(group)
+        layout.setContentsMargins(14, 18, 14, 14)
+        layout.setHorizontalSpacing(8)
+        layout.setVerticalSpacing(8)
+
+        self.orthogonal_diff_ratio_label = QLabel()
+        self.orthogonal_diff_periodicity_label = QLabel()
+        self.orthogonal_diff_common_period_label = QLabel()
+        self.orthogonal_diff_type_label = QLabel()
+        self.orthogonal_diff_type_label.setWordWrap(True)
+
+        rows = [
+            ("频率比 ω1:ω2", self.orthogonal_diff_ratio_label),
+            ("轨迹判定", self.orthogonal_diff_periodicity_label),
+            ("公共周期", self.orthogonal_diff_common_period_label),
+            ("图形特征", self.orthogonal_diff_type_label),
+        ]
+        for row, (text, label) in enumerate(rows):
+            layout.addWidget(QLabel(text), row, 0)
+            layout.addWidget(label, row, 1)
+
+        return group
+
     def _build_control_group(self):
         group = QGroupBox("动画控制")
         layout = QVBoxLayout(group)
@@ -772,6 +1281,106 @@ class VibrationLabTab(QWidget):
         spinbox.setAccelerated(True)
         return spinbox
 
+    def on_diff_case_changed(self, case_text):
+        is_special = case_text == self.DIFF_SPECIAL_CASE
+        self.diff_special_widget.setVisible(is_special)
+        self.diff_general_widget.setVisible(not is_special)
+        if hasattr(self, "mode_combo") and self.mode_combo.currentText() == self.DIFF_FREQ_MODE:
+            self.refresh_current_mode(reset_time=True)
+
+    def on_orthogonal_diff_preset_changed(self, preset_text):
+        if preset_text == self.ORTHOGONAL_DIFF_MANUAL:
+            if hasattr(self, "mode_combo") and self.mode_combo.currentText() == self.ORTHOGONAL_DIFF_MODE:
+                self.refresh_current_mode(reset_time=True)
+            return
+
+        base_amplitude = max(
+            self.orthogonal_diff_amplitude_x_spin.value(),
+            self.orthogonal_diff_amplitude_y_spin.value(),
+            10.0,
+        )
+        preset_map = {
+            "1:1 直线": {
+                "A1": base_amplitude,
+                "A2": base_amplitude,
+                "omega1": 3.0,
+                "omega2": 3.0,
+                "phi1": 0.0,
+                "phi2": 0.0,
+            },
+            "1:1 圆": {
+                "A1": base_amplitude,
+                "A2": base_amplitude,
+                "omega1": 3.0,
+                "omega2": 3.0,
+                "phi1": 0.0,
+                "phi2": np.pi / 2,
+            },
+            "1:2 李萨如": {
+                "A1": base_amplitude,
+                "A2": base_amplitude,
+                "omega1": 2.0,
+                "omega2": 4.0,
+                "phi1": 0.0,
+                "phi2": np.pi / 2,
+            },
+            "2:1 李萨如": {
+                "A1": base_amplitude,
+                "A2": base_amplitude,
+                "omega1": 4.0,
+                "omega2": 2.0,
+                "phi1": 0.0,
+                "phi2": np.pi / 2,
+            },
+            "2:3 李萨如": {
+                "A1": base_amplitude,
+                "A2": base_amplitude,
+                "omega1": 4.0,
+                "omega2": 6.0,
+                "phi1": 0.0,
+                "phi2": np.pi / 2,
+            },
+            "3:4 李萨如": {
+                "A1": base_amplitude,
+                "A2": base_amplitude,
+                "omega1": 6.0,
+                "omega2": 8.0,
+                "phi1": 0.0,
+                "phi2": np.pi / 2,
+            },
+        }
+        preset = preset_map.get(preset_text)
+        if preset is None:
+            return
+
+        self._updating_orthogonal_diff_preset = True
+        blocked_states = []
+        for spinbox in self.orthogonal_diff_spinboxes:
+            blocked_states.append(spinbox.blockSignals(True))
+
+        self.orthogonal_diff_amplitude_x_spin.setValue(preset["A1"])
+        self.orthogonal_diff_amplitude_y_spin.setValue(preset["A2"])
+        self.orthogonal_diff_omega_x_spin.setValue(preset["omega1"])
+        self.orthogonal_diff_omega_y_spin.setValue(preset["omega2"])
+        self.orthogonal_diff_phase_x_spin.setValue(preset["phi1"])
+        self.orthogonal_diff_phase_y_spin.setValue(preset["phi2"])
+
+        for spinbox, blocked in zip(self.orthogonal_diff_spinboxes, blocked_states):
+            spinbox.blockSignals(blocked)
+        self._updating_orthogonal_diff_preset = False
+
+        if hasattr(self, "mode_combo") and self.mode_combo.currentText() == self.ORTHOGONAL_DIFF_MODE:
+            self.refresh_current_mode(reset_time=True)
+
+    def on_orthogonal_diff_spinbox_changed(self, _value):
+        if not self._updating_orthogonal_diff_preset:
+            combo = self.orthogonal_diff_preset_combo
+            if combo.currentText() != self.ORTHOGONAL_DIFF_MANUAL:
+                was_blocked = combo.blockSignals(True)
+                combo.setCurrentText(self.ORTHOGONAL_DIFF_MANUAL)
+                combo.blockSignals(was_blocked)
+        self.refresh_current_mode(reset_time=False)
+
     def on_mode_changed(self, mode_text):
         if self.timer.isActive():
             self.timer.stop()
@@ -780,26 +1389,64 @@ class VibrationLabTab(QWidget):
         self.last_tick = None
 
         is_single = mode_text == self.SINGLE_MODE
+        is_compound = mode_text == self.COMPOUND_MODE
+        is_diff_freq = mode_text == self.DIFF_FREQ_MODE
+        is_orthogonal = mode_text == self.ORTHOGONAL_MODE
+        is_orthogonal_diff = mode_text == self.ORTHOGONAL_DIFF_MODE
+
         self.single_param_group.setVisible(is_single)
         self.single_derived_group.setVisible(is_single)
         self.single_top_widget.setVisible(is_single)
         self.single_curve_canvas.setVisible(is_single)
 
-        self.compound_param_group.setVisible(not is_single)
-        self.compound_derived_group.setVisible(not is_single)
-        self.compound_top_widget.setVisible(not is_single)
-        self.compound_curve_canvas.setVisible(not is_single)
+        self.compound_param_group.setVisible(is_compound)
+        self.compound_derived_group.setVisible(is_compound)
+        self.compound_top_widget.setVisible(is_compound)
+        self.compound_curve_canvas.setVisible(is_compound)
+
+        self.diff_freq_param_group.setVisible(is_diff_freq)
+        self.diff_freq_derived_group.setVisible(is_diff_freq)
+        self.diff_freq_top_widget.setVisible(False)
+        self.diff_freq_curve_canvas.setVisible(is_diff_freq)
+        self.diff_envelope_canvas.setVisible(is_diff_freq)
+
+        self.orthogonal_param_group.setVisible(is_orthogonal)
+        self.orthogonal_derived_group.setVisible(is_orthogonal)
+        self.orthogonal_top_widget.setVisible(is_orthogonal)
+        self.orthogonal_curve_canvas.setVisible(is_orthogonal)
+
+        self.orthogonal_diff_param_group.setVisible(is_orthogonal_diff)
+        self.orthogonal_diff_derived_group.setVisible(is_orthogonal_diff)
+        self.trajectory_canvas.setVisible(is_orthogonal or is_orthogonal_diff)
+        self.orthogonal_summary_label.setVisible(is_orthogonal or is_orthogonal_diff)
+        self.orthogonal_top_widget.setVisible(is_orthogonal or is_orthogonal_diff)
+        self.orthogonal_curve_canvas.setVisible(is_orthogonal or is_orthogonal_diff)
 
         if is_single:
             self.subtitle_label.setText("弹簧振子、x/t、v/t、a/t 与旋转矢量同步联动")
             self.display_title.setText("简谐振动仿真")
             self.curve_group.setTitle("x/t、v/t、a/t 曲线")
             self.result_group.setTitle("实验说明")
-        else:
-            self.subtitle_label.setText("两个同方向、同频率简谐振动的图像与旋转矢量合成")
+        elif is_compound:
+            self.subtitle_label.setText("输入两个同方向、同频率简谐振动，观察旋转矢量法下的合振动")
             self.display_title.setText("同方向同频率简谐振动合成")
             self.curve_group.setTitle("分振动与合振动 x/t 曲线")
+            self.result_group.setTitle("实验说明")
+        elif is_diff_freq:
+            self.subtitle_label.setText("支持特殊拍频情况与一般情况，显示两个分振动、合振动与包络曲线")
+            self.display_title.setText("同方向不同频率简谐振动合成")
+            self.curve_group.setTitle("不同频率合成 x/t 曲线")
             self.result_group.setTitle("合成说明")
+        elif is_orthogonal:
+            self.subtitle_label.setText("显示相互垂直且同频率的两个分振动，以及合振动轨迹")
+            self.display_title.setText("方向垂直同频率简谐振动合成")
+            self.curve_group.setTitle("垂直分振动曲线")
+            self.result_group.setTitle("轨迹说明")
+        else:
+            self.subtitle_label.setText("显示方向垂直且不同频率的合振动轨迹，重点观察整数频率比的李萨如图形")
+            self.display_title.setText("方向垂直不同频率简谐振动合成")
+            self.curve_group.setTitle("李萨如图形与分振动曲线")
+            self.result_group.setTitle("李萨如说明")
 
         self.refresh_current_mode(reset_time=True)
 
@@ -810,10 +1457,141 @@ class VibrationLabTab(QWidget):
         elif self.duration > 0:
             self.current_time %= self.duration
 
-        if self.mode_combo.currentText() == self.SINGLE_MODE:
+        mode = self.mode_combo.currentText()
+        if mode == self.SINGLE_MODE:
             self.update_single_simulation(reset_time=reset_time)
-        else:
+        elif mode == self.COMPOUND_MODE:
             self.update_compound_simulation(reset_time=reset_time)
+        elif mode == self.DIFF_FREQ_MODE:
+            self.update_diff_freq_simulation(reset_time=reset_time)
+        elif mode == self.ORTHOGONAL_MODE:
+            self.update_orthogonal_simulation(reset_time=reset_time)
+        else:
+            self.update_orthogonal_diff_simulation(reset_time=reset_time)
+
+    def _get_diff_freq_parameters(self):
+        if self.diff_case_combo.currentText() == self.DIFF_SPECIAL_CASE:
+            amplitude = self.diff_special_amplitude_spin.value()
+            phase = self.diff_special_phase_spin.value()
+            return {
+                "case": "special",
+                "A1": amplitude,
+                "A2": amplitude,
+                "phi1": phase,
+                "phi2": phase,
+                "omega1": max(self.diff_special_omega_1_spin.value(), 1e-9),
+                "omega2": max(self.diff_special_omega_2_spin.value(), 1e-9),
+            }
+
+        return {
+            "case": "general",
+            "A1": self.diff_general_amplitude_1_spin.value(),
+            "A2": self.diff_general_amplitude_2_spin.value(),
+            "phi1": self.diff_general_phase_1_spin.value(),
+            "phi2": self.diff_general_phase_2_spin.value(),
+            "omega1": max(self.diff_general_omega_1_spin.value(), 1e-9),
+            "omega2": max(self.diff_general_omega_2_spin.value(), 1e-9),
+        }
+
+    def _estimate_diff_duration(self, omega_1, omega_2, show_relative_cycle):
+        omega_min = max(min(omega_1, omega_2), 1e-9)
+        duration = max(4.0, 3.0 * (2 * np.pi / omega_min))
+        delta_omega = abs(omega_2 - omega_1)
+        if show_relative_cycle and delta_omega > 1e-9:
+            duration = max(duration, 2 * np.pi / delta_omega)
+        return duration
+
+    def _calculate_diff_freq_motion(self, times):
+        params = self._get_diff_freq_parameters()
+        theta_1 = params["omega1"] * times + params["phi1"]
+        theta_2 = params["omega2"] * times + params["phi2"]
+        x1_values = params["A1"] * np.cos(theta_1)
+        x2_values = params["A2"] * np.cos(theta_2)
+        return x1_values, x2_values, x1_values + x2_values
+
+    def _calculate_diff_freq_envelope(self, times):
+        params = self._get_diff_freq_parameters()
+        phase_gap = (params["omega2"] - params["omega1"]) * times + (params["phi2"] - params["phi1"])
+        envelope_squared = (
+            params["A1"] ** 2
+            + params["A2"] ** 2
+            + 2.0 * params["A1"] * params["A2"] * np.cos(phase_gap)
+        )
+        return np.sqrt(np.clip(envelope_squared, 0.0, None))
+
+    def _get_orthogonal_parameters(self):
+        return {
+            "Ax": self.orthogonal_amplitude_x_spin.value(),
+            "Ay": self.orthogonal_amplitude_y_spin.value(),
+            "phi_x": self.orthogonal_phase_x_spin.value(),
+            "phi_y": self.orthogonal_phase_y_spin.value(),
+            "omega": max(self.orthogonal_omega_spin.value(), 1e-9),
+        }
+
+    def _get_orthogonal_diff_parameters(self):
+        return {
+            "A1": self.orthogonal_diff_amplitude_x_spin.value(),
+            "A2": self.orthogonal_diff_amplitude_y_spin.value(),
+            "phi1": self.orthogonal_diff_phase_x_spin.value(),
+            "phi2": self.orthogonal_diff_phase_y_spin.value(),
+            "omega1": max(self.orthogonal_diff_omega_x_spin.value(), 1e-9),
+            "omega2": max(self.orthogonal_diff_omega_y_spin.value(), 1e-9),
+        }
+
+    def _normalize_phase(self, phase_rad):
+        return float((phase_rad + np.pi) % (2 * np.pi) - np.pi)
+
+    def _classify_orthogonal_trajectory(self, amplitude_x, amplitude_y, delta_phase):
+        if min(amplitude_x, amplitude_y) <= 1e-9:
+            return "直线轨迹"
+
+        delta = abs(self._normalize_phase(delta_phase))
+        amplitude_ratio = max(amplitude_x, amplitude_y) / max(min(amplitude_x, amplitude_y), 1e-9)
+        phase_tolerance = 0.08
+
+        if delta < phase_tolerance or abs(delta - np.pi) < phase_tolerance:
+            return "直线轨迹"
+        if abs(delta - np.pi / 2) < phase_tolerance and abs(amplitude_ratio - 1.0) < 0.06:
+            return "圆轨迹"
+        return "椭圆轨迹"
+
+    def _calculate_orthogonal_motion(self, times):
+        params = self._get_orthogonal_parameters()
+        theta_x = params["omega"] * times + params["phi_x"]
+        theta_y = params["omega"] * times + params["phi_y"]
+        x_values = params["Ax"] * np.cos(theta_x)
+        y_values = params["Ay"] * np.cos(theta_y)
+        return x_values, y_values
+
+    def _analyze_frequency_ratio(self, omega_1, omega_2, max_denominator=12):
+        ratio = omega_1 / max(omega_2, 1e-9)
+        fraction = Fraction(ratio).limit_denominator(max_denominator)
+        approx_ratio = fraction.numerator / fraction.denominator
+        relative_error = abs(ratio - approx_ratio) / max(abs(ratio), 1e-9)
+        is_closed = relative_error < 1e-3
+        return {
+            "ratio": ratio,
+            "fraction": fraction,
+            "approx_ratio": approx_ratio,
+            "is_closed": is_closed,
+            "relative_error": relative_error,
+        }
+
+    def _estimate_orthogonal_diff_duration(self, params, ratio_info):
+        if ratio_info["is_closed"]:
+            common_period = 2 * np.pi * ratio_info["fraction"].denominator / params["omega2"]
+            return max(common_period, 2.0), common_period
+
+        slow_period = 2 * np.pi / min(params["omega1"], params["omega2"])
+        return max(6.0 * slow_period, 8.0), None
+
+    def _calculate_orthogonal_diff_motion(self, times):
+        params = self._get_orthogonal_diff_parameters()
+        theta_1 = params["omega1"] * times + params["phi1"]
+        theta_2 = params["omega2"] * times + params["phi2"]
+        x_values = params["A1"] * np.cos(theta_1)
+        y_values = params["A2"] * np.cos(theta_2)
+        return x_values, y_values
 
     def _calculate_single_motion(self, times):
         amplitude = self.amplitude_spin.value()
@@ -894,6 +1672,46 @@ class VibrationLabTab(QWidget):
         self.update_compound_live_widgets()
         self.update_compound_result_summary(resultant_amplitude, resultant_phase, omega, period, frequency)
 
+    def update_diff_freq_simulation(self, reset_time=False):
+        params = self._get_diff_freq_parameters()
+        omega_1 = params["omega1"]
+        omega_2 = params["omega2"]
+        delta_omega = abs(omega_2 - omega_1)
+        self.duration = self._estimate_diff_duration(omega_1, omega_2, show_relative_cycle=delta_omega > 1e-9)
+        self.t_values = np.linspace(0.0, self.duration, 1600)
+        self.x1_values, self.x2_values, self.x_sum_values = self._calculate_diff_freq_motion(self.t_values)
+        self.diff_envelope_values = self._calculate_diff_freq_envelope(self.t_values)
+        self.current_time = 0.0 if reset_time else float(np.clip(self.current_time, 0.0, self.duration))
+
+        self.diff_omega_1_label.setText(f"{omega_1:.4f} rad/s")
+        self.diff_omega_2_label.setText(f"{omega_2:.4f} rad/s")
+        self.diff_delta_omega_label.setText(f"{delta_omega:.4f} rad/s")
+        if params["case"] == "special":
+            if delta_omega > 1e-9:
+                beat_period = 2 * np.pi / delta_omega
+                feature_text = f"出现拍频现象，包络周期 T_beat = {beat_period:.4f} s"
+            else:
+                feature_text = "退化为同频同相合成，合振幅为 2A"
+        else:
+            feature_text = (
+                f"瞬时相位差持续变化，合位移理论范围不超过 ±{params['A1'] + params['A2']:.4f} cm"
+            )
+        self.diff_feature_label.setText(feature_text)
+
+        self.diff_freq_curve_canvas.set_series(
+            self.t_values,
+            [self.x1_values, self.x2_values, self.x_sum_values],
+        )
+        envelope_title = "合振动与拍频包络" if params["case"] == "special" else "合振动与理论包络"
+        self.diff_envelope_canvas.set_series(
+            self.t_values,
+            self.x_sum_values,
+            self.diff_envelope_values,
+            envelope_title,
+        )
+        self.update_diff_freq_live_widgets()
+        self.update_diff_freq_result_summary(params, delta_omega)
+
     def update_single_live_widgets(self):
         amplitude = self.amplitude_spin.value()
         omega = self.omega_spin.value()
@@ -951,6 +1769,331 @@ class VibrationLabTab(QWidget):
             f"t = {self.current_time:.3f} s | x1 = {x1_value:.3f} cm | "
             f"x2 = {x2_value:.3f} cm | x = {x_sum_value:.3f} cm"
         )
+
+    def update_diff_freq_live_widgets(self):
+        params = self._get_diff_freq_parameters()
+        theta_1 = params["phi1"] + params["omega1"] * self.current_time
+        theta_2 = params["phi2"] + params["omega2"] * self.current_time
+        x1_value = params["A1"] * np.cos(theta_1)
+        x2_value = params["A2"] * np.cos(theta_2)
+        x_sum_value = x1_value + x2_value
+        delta_omega = abs(params["omega2"] - params["omega1"])
+        delta_theta = theta_2 - theta_1
+        current_envelope = float(np.interp(self.current_time, self.t_values, self.diff_envelope_values))
+
+        self.diff_freq_phasor_widget.set_state(params["A1"], params["A2"], theta_1, theta_2)
+        self.diff_freq_curve_canvas.update_current_time(self.current_time)
+        self.diff_envelope_canvas.update_current_time(self.current_time)
+
+        if params["case"] == "special":
+            heading = "特殊情况：同振幅、同初相、不同角频率"
+            if delta_omega > 1e-9:
+                beat_period = 2 * np.pi / delta_omega
+                envelope = 2 * params["A1"] * np.cos(0.5 * delta_omega * self.current_time)
+                relation_line = "x = 2A cos(Δω t / 2) cos(((ω1 + ω2) t) / 2 + φ)"
+                extra_line = (
+                    f"当前包络 |Aenv| = {abs(envelope):.3f} cm，包络图已单独绘出，拍周期 T_beat = {beat_period:.3f} s"
+                )
+            else:
+                relation_line = "ω1 = ω2 时退化为 x = 2A cos(ωt + φ)"
+                extra_line = "Δω = 0.000 rad/s"
+        else:
+            heading = "一般情况：不同振幅、不同角频率、不同初相"
+            relation_line = "x(t) = A1 cos(ω1 t + φ1) + A2 cos(ω2 t + φ2)"
+            extra_line = (
+                f"当前相位差 Δθ = {delta_theta:.3f} rad，理论最大振幅不超过 {params['A1'] + params['A2']:.3f} cm"
+            )
+
+        self.diff_freq_summary_label.setText(
+            (
+                "<div style='font-size:12px;'>"
+                f"<div style='font-weight:600; color:#0f172a; margin-bottom:6px;'>{heading}</div>"
+                f"<div>A1 = {params['A1']:.3f} cm，ω1 = {params['omega1']:.3f} rad/s，φ1 = {params['phi1']:.3f} rad</div>"
+                f"<div>A2 = {params['A2']:.3f} cm，ω2 = {params['omega2']:.3f} rad/s，φ2 = {params['phi2']:.3f} rad</div>"
+                f"<div style='margin-top:8px;'>θ1 = {theta_1:.3f} rad，θ2 = {theta_2:.3f} rad</div>"
+                f"<div>x1 = {x1_value:.3f} cm，x2 = {x2_value:.3f} cm</div>"
+                f"<div style='font-weight:600; color:#0f172a;'>x = {x_sum_value:.3f} cm</div>"
+                f"<div>当前包络 Aenv = {current_envelope:.3f} cm</div>"
+                f"<div style='margin-top:8px;'>{relation_line}</div>"
+                f"<div>{extra_line}</div>"
+                "</div>"
+            )
+        )
+        self.live_status_label.setText(
+            f"t = {self.current_time:.3f} s | x1 = {x1_value:.3f} cm | "
+            f"x2 = {x2_value:.3f} cm | x = {x_sum_value:.3f} cm | Aenv = {current_envelope:.3f} cm"
+        )
+
+    def update_diff_freq_result_summary(self, params, delta_omega):
+        frequency_1 = params["omega1"] / (2 * np.pi)
+        frequency_2 = params["omega2"] / (2 * np.pi)
+        average_omega = 0.5 * (params["omega1"] + params["omega2"])
+        phase_diff_0 = params["phi2"] - params["phi1"]
+
+        if params["case"] == "special":
+            if delta_omega > 1e-9:
+                beat_period_text = f"拍周期 T_beat = {2 * np.pi / delta_omega:.4f} s\n"
+            else:
+                beat_period_text = "ω1 = ω2 时退化为同频同相合成\n"
+            text = (
+                "模型:\n"
+                "x1(t) = A cos(ω1 t + φ)\n"
+                "x2(t) = A cos(ω2 t + φ)\n"
+                "x(t) = x1(t) + x2(t)\n"
+                "     = 2A cos(Δω t / 2) cos(((ω1 + ω2) t) / 2 + φ)\n\n"
+                f"输入参数:\n"
+                f"A = {params['A1']:.4f} cm\n"
+                f"ω1 = {params['omega1']:.4f} rad/s, f1 = {frequency_1:.4f} Hz\n"
+                f"ω2 = {params['omega2']:.4f} rad/s, f2 = {frequency_2:.4f} Hz\n"
+                f"φ = {params['phi1']:.4f} rad ({np.degrees(params['phi1']):.2f}°)\n\n"
+                f"推导结果:\n"
+                f"平均角频率 ωavg = {average_omega:.4f} rad/s\n"
+                f"角频率差 Δω = {delta_omega:.4f} rad/s\n"
+                f"{beat_period_text}\n"
+                "图像说明:\n"
+                "下方三张曲线分别给出两个分振动和合振动的位移随时间变化。\n"
+                "新增的包络图会单独绘出合振动与上下包络线。\n"
+                "当 ω1 与 ω2 接近时，合振动会出现明显拍频，包络由 cos(Δω t / 2) 控制。"
+            )
+        else:
+            text = (
+                "模型:\n"
+                "x1(t) = A1 cos(ω1 t + φ1)\n"
+                "x2(t) = A2 cos(ω2 t + φ2)\n"
+                "x(t) = x1(t) + x2(t)\n\n"
+                f"输入参数:\n"
+                f"A1 = {params['A1']:.4f} cm, ω1 = {params['omega1']:.4f} rad/s, φ1 = {params['phi1']:.4f} rad ({np.degrees(params['phi1']):.2f}°)\n"
+                f"A2 = {params['A2']:.4f} cm, ω2 = {params['omega2']:.4f} rad/s, φ2 = {params['phi2']:.4f} rad ({np.degrees(params['phi2']):.2f}°)\n\n"
+                f"推导结果:\n"
+                f"f1 = {frequency_1:.4f} Hz, f2 = {frequency_2:.4f} Hz\n"
+                f"初始相位差 Δφ0 = {phase_diff_0:.4f} rad ({np.degrees(phase_diff_0):.2f}°)\n"
+                f"角频率差 Δω = {delta_omega:.4f} rad/s\n"
+                f"合位移理论最大值不超过 ±{params['A1'] + params['A2']:.4f} cm\n"
+                f"最小包络可接近 {abs(params['A1'] - params['A2']):.4f} cm\n\n"
+                "图像说明:\n"
+                "下方三张曲线分别显示两个分振动和合振动的 x/t 变化。\n"
+                "底部新增的包络图给出合振动的上下理论包络线。\n"
+                "由于振幅、角频率和初相都可以不同，合振动通常表现为非固定振幅的复杂调制。"
+            )
+        self.result_text.setPlainText(text)
+
+    def update_orthogonal_simulation(self, reset_time=False):
+        params = self._get_orthogonal_parameters()
+        omega = params["omega"]
+        period = 2 * np.pi / omega
+        frequency = omega / (2 * np.pi)
+        self.duration = max(2.0, 3.0 * period)
+        self.t_values = np.linspace(0.0, self.duration, 1400)
+        self.orth_x_values, self.orth_y_values = self._calculate_orthogonal_motion(self.t_values)
+        self.current_time = 0.0 if reset_time else float(np.clip(self.current_time, 0.0, self.duration))
+
+        delta_phase = self._normalize_phase(params["phi_y"] - params["phi_x"])
+        trajectory_type = self._classify_orthogonal_trajectory(params["Ax"], params["Ay"], delta_phase)
+
+        self.orthogonal_omega_label.setText(f"{omega:.4f} rad/s")
+        self.orthogonal_period_label.setText(f"{period:.4f} s")
+        self.orthogonal_delta_phase_label.setText(f"{delta_phase:.4f} rad / {np.degrees(delta_phase):.2f}°")
+        self.orthogonal_type_label.setText(trajectory_type)
+
+        self.orthogonal_curve_canvas.set_series(self.t_values, [self.orth_x_values, self.orth_y_values])
+        self.trajectory_canvas.set_series(
+            self.t_values,
+            self.orth_x_values,
+            self.orth_y_values,
+            f"合振动轨迹：{trajectory_type}",
+        )
+        self.update_orthogonal_live_widgets()
+        self.update_orthogonal_result_summary(params, delta_phase, trajectory_type, period, frequency)
+
+    def update_orthogonal_live_widgets(self):
+        params = self._get_orthogonal_parameters()
+        theta_x = params["omega"] * self.current_time + params["phi_x"]
+        theta_y = params["omega"] * self.current_time + params["phi_y"]
+        x_value = params["Ax"] * np.cos(theta_x)
+        y_value = params["Ay"] * np.cos(theta_y)
+        delta_phase = self._normalize_phase(params["phi_y"] - params["phi_x"])
+        trajectory_type = self._classify_orthogonal_trajectory(params["Ax"], params["Ay"], delta_phase)
+
+        self.orthogonal_curve_canvas.update_current_time(self.current_time)
+        self.trajectory_canvas.update_current_time(self.current_time)
+        self.orthogonal_summary_label.setText(
+            (
+                "<div style='font-size:12px;'>"
+                "<div style='font-weight:600; color:#0f172a; margin-bottom:6px;'>当前轨迹状态</div>"
+                f"<div>Ax = {params['Ax']:.3f} cm，Ay = {params['Ay']:.3f} cm</div>"
+                f"<div>φx = {params['phi_x']:.3f} rad，φy = {params['phi_y']:.3f} rad</div>"
+                f"<div>Δφ = {delta_phase:.3f} rad ({np.degrees(delta_phase):.1f}°)</div>"
+                f"<div>ω = {params['omega']:.3f} rad/s</div>"
+                f"<div style='margin-top:8px;'>x = {x_value:.3f} cm</div>"
+                f"<div>y = {y_value:.3f} cm</div>"
+                f"<div style='font-weight:600; color:#0f172a; margin-top:8px;'>轨迹类型：{trajectory_type}</div>"
+                "</div>"
+            )
+        )
+        self.live_status_label.setText(
+            f"t = {self.current_time:.3f} s | x = {x_value:.3f} cm | y = {y_value:.3f} cm | 轨迹 = {trajectory_type}"
+        )
+
+    def update_orthogonal_result_summary(self, params, delta_phase, trajectory_type, period, frequency):
+        if trajectory_type == "直线轨迹":
+            condition_text = "当相位差 Δφ 接近 0 或 π 时，轨迹退化为直线。"
+        elif trajectory_type == "圆轨迹":
+            condition_text = "当 Ax ≈ Ay 且 Δφ 接近 ±π/2 时，轨迹为圆。"
+        else:
+            condition_text = "当相位差既不为 0/π，又不满足圆轨迹条件时，一般表现为椭圆。"
+
+        text = (
+            "模型:\n"
+            "x(t) = Ax cos(ωt + φx)\n"
+            "y(t) = Ay cos(ωt + φy)\n\n"
+            "消去时间后的轨迹方程:\n"
+            "(x / Ax)^2 + (y / Ay)^2 - 2xy cos(Δφ) / (Ax Ay) = sin^2(Δφ)\n\n"
+            f"输入参数:\n"
+            f"Ax = {params['Ax']:.4f} cm, φx = {params['phi_x']:.4f} rad ({np.degrees(params['phi_x']):.2f}°)\n"
+            f"Ay = {params['Ay']:.4f} cm, φy = {params['phi_y']:.4f} rad ({np.degrees(params['phi_y']):.2f}°)\n"
+            f"ω = {params['omega']:.4f} rad/s, f = {frequency:.4f} Hz, T = {period:.4f} s\n\n"
+            f"推导结果:\n"
+            f"Δφ = {delta_phase:.4f} rad ({np.degrees(delta_phase):.2f}°)\n"
+            f"轨迹类型 = {trajectory_type}\n"
+            f"{condition_text}\n\n"
+            "图像说明:\n"
+            "右上图显示合振动在 x-y 平面上的完整轨迹与当前质点位置。\n"
+            "下方两张曲线分别显示 x 方向和 y 方向的分振动随时间变化。\n"
+            "通过调整振幅和相位差，可以观察直线、椭圆与圆轨迹之间的变化。"
+        )
+        self.result_text.setPlainText(text)
+
+    def update_orthogonal_diff_simulation(self, reset_time=False):
+        params = self._get_orthogonal_diff_parameters()
+        ratio_info = self._analyze_frequency_ratio(params["omega1"], params["omega2"])
+        self.duration, common_period = self._estimate_orthogonal_diff_duration(params, ratio_info)
+        self.t_values = np.linspace(0.0, self.duration, 1800)
+        self.orth_x_values, self.orth_y_values = self._calculate_orthogonal_diff_motion(self.t_values)
+        self.current_time = 0.0 if reset_time else float(np.clip(self.current_time, 0.0, self.duration))
+
+        delta_phase = self._normalize_phase(params["phi2"] - params["phi1"])
+        ratio_text = f"{ratio_info['fraction'].numerator}:{ratio_info['fraction'].denominator}"
+        if ratio_info["is_closed"]:
+            if ratio_info["fraction"].numerator == ratio_info["fraction"].denominator:
+                periodicity_text = "退化为同频率闭合轨迹"
+                feature_text = "频率比为 1:1，可进一步退化为直线、椭圆或圆"
+                trajectory_type = "同频率闭合轨迹"
+            else:
+                periodicity_text = "闭合李萨如图形"
+                feature_text = f"整数频率比 {ratio_text}，轨迹在一个公共周期后闭合"
+                trajectory_type = f"李萨如图形 {ratio_text}"
+        else:
+            periodicity_text = "准周期轨迹"
+            feature_text = "频率比不是简单整数比，轨迹长期不重复，只在矩形区域内密铺"
+            trajectory_type = "准周期轨迹"
+
+        self.orthogonal_diff_ratio_label.setText(
+            f"{params['omega1']:.4f}:{params['omega2']:.4f} ≈ {ratio_text}"
+        )
+        self.orthogonal_diff_periodicity_label.setText(periodicity_text)
+        self.orthogonal_diff_common_period_label.setText(
+            f"{common_period:.4f} s" if common_period is not None else "无有限公共周期"
+        )
+        self.orthogonal_diff_type_label.setText(feature_text)
+
+        self.orthogonal_curve_canvas.set_series(self.t_values, [self.orth_x_values, self.orth_y_values])
+        self.trajectory_canvas.set_series(
+            self.t_values,
+            self.orth_x_values,
+            self.orth_y_values,
+            f"轨迹图：{trajectory_type}",
+        )
+        self.update_orthogonal_diff_live_widgets()
+        self.update_orthogonal_diff_result_summary(
+            params,
+            delta_phase,
+            ratio_info,
+            periodicity_text,
+            trajectory_type,
+            common_period,
+        )
+
+    def update_orthogonal_diff_live_widgets(self):
+        params = self._get_orthogonal_diff_parameters()
+        theta_1 = params["omega1"] * self.current_time + params["phi1"]
+        theta_2 = params["omega2"] * self.current_time + params["phi2"]
+        x_value = params["A1"] * np.cos(theta_1)
+        y_value = params["A2"] * np.cos(theta_2)
+        delta_phase = self._normalize_phase(params["phi2"] - params["phi1"])
+        ratio_info = self._analyze_frequency_ratio(params["omega1"], params["omega2"])
+        ratio_text = f"{ratio_info['fraction'].numerator}:{ratio_info['fraction'].denominator}"
+
+        if ratio_info["is_closed"]:
+            trajectory_type = "闭合李萨如图形" if ratio_text != "1:1" else "同频率闭合轨迹"
+            ratio_line = f"频率比 ≈ {ratio_text}，轨迹闭合"
+        else:
+            trajectory_type = "准周期轨迹"
+            ratio_line = f"频率比 ≈ {ratio_text}，轨迹不闭合"
+
+        self.orthogonal_curve_canvas.update_current_time(self.current_time)
+        self.trajectory_canvas.update_current_time(self.current_time)
+        self.orthogonal_summary_label.setText(
+            (
+                "<div style='font-size:12px;'>"
+                "<div style='font-weight:600; color:#0f172a; margin-bottom:6px;'>当前李萨如状态</div>"
+                f"<div>A1 = {params['A1']:.3f} cm，ω1 = {params['omega1']:.3f} rad/s，φ1 = {params['phi1']:.3f} rad</div>"
+                f"<div>A2 = {params['A2']:.3f} cm，ω2 = {params['omega2']:.3f} rad/s，φ2 = {params['phi2']:.3f} rad</div>"
+                f"<div>Δφ = {delta_phase:.3f} rad ({np.degrees(delta_phase):.1f}°)</div>"
+                f"<div style='margin-top:8px;'>x = {x_value:.3f} cm</div>"
+                f"<div>y = {y_value:.3f} cm</div>"
+                f"<div style='margin-top:8px;'>{ratio_line}</div>"
+                f"<div style='font-weight:600; color:#0f172a;'>图形类型：{trajectory_type}</div>"
+                "</div>"
+            )
+        )
+        self.live_status_label.setText(
+            f"t = {self.current_time:.3f} s | x = {x_value:.3f} cm | y = {y_value:.3f} cm | {trajectory_type}"
+        )
+
+    def update_orthogonal_diff_result_summary(
+        self,
+        params,
+        delta_phase,
+        ratio_info,
+        periodicity_text,
+        trajectory_type,
+        common_period,
+    ):
+        frequency_1 = params["omega1"] / (2 * np.pi)
+        frequency_2 = params["omega2"] / (2 * np.pi)
+        ratio_text = f"{ratio_info['fraction'].numerator}:{ratio_info['fraction'].denominator}"
+
+        if ratio_info["is_closed"]:
+            period_line = f"公共周期 T = {common_period:.4f} s\n" if common_period is not None else ""
+            feature_text = (
+                "当两个角频率之比为整数比时，轨迹是闭合的，运动是周期性的，这就是李萨如图形。"
+            )
+        else:
+            period_line = "不存在有限公共周期\n"
+            feature_text = (
+                "当两个角频率之比不是简单整数比时，轨迹一般不闭合，表现为准周期运动。"
+            )
+
+        text = (
+            "模型:\n"
+            "x(t) = A1 cos(ω1 t + φ1)\n"
+            "y(t) = A2 cos(ω2 t + φ2)\n\n"
+            f"输入参数:\n"
+            f"A1 = {params['A1']:.4f} cm, ω1 = {params['omega1']:.4f} rad/s, φ1 = {params['phi1']:.4f} rad ({np.degrees(params['phi1']):.2f}°)\n"
+            f"A2 = {params['A2']:.4f} cm, ω2 = {params['omega2']:.4f} rad/s, φ2 = {params['phi2']:.4f} rad ({np.degrees(params['phi2']):.2f}°)\n\n"
+            f"推导结果:\n"
+            f"f1 = {frequency_1:.4f} Hz, f2 = {frequency_2:.4f} Hz\n"
+            f"Δφ = {delta_phase:.4f} rad ({np.degrees(delta_phase):.2f}°)\n"
+            f"频率比 ω1:ω2 ≈ {ratio_text}\n"
+            f"轨迹判定 = {periodicity_text}\n"
+            f"{period_line}"
+            f"图形类型 = {trajectory_type}\n\n"
+            "图像说明:\n"
+            "右上图显示合振动在 x-y 平面中的轨迹，这就是李萨如图形或其准周期推广。\n"
+            "下方两张曲线分别显示 x、y 两个方向上的分振动随时间变化。\n"
+            f"{feature_text}"
+        )
+        self.result_text.setPlainText(text)
 
     def update_single_result_summary(
         self,
@@ -1041,7 +2184,14 @@ class VibrationLabTab(QWidget):
         if self.duration > 0:
             self.current_time %= self.duration
 
-        if self.mode_combo.currentText() == self.SINGLE_MODE:
+        mode = self.mode_combo.currentText()
+        if mode == self.SINGLE_MODE:
             self.update_single_live_widgets()
-        else:
+        elif mode == self.COMPOUND_MODE:
             self.update_compound_live_widgets()
+        elif mode == self.DIFF_FREQ_MODE:
+            self.update_diff_freq_live_widgets()
+        elif mode == self.ORTHOGONAL_MODE:
+            self.update_orthogonal_live_widgets()
+        else:
+            self.update_orthogonal_diff_live_widgets()

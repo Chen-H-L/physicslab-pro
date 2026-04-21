@@ -194,8 +194,9 @@ class DataWorkstationTab(QWidget):
         right_panel.setLayout(right_layout)
 
         # 图表类型选择
-        chart_title = QLabel("📊 图表类型")
-        chart_title.setFont(QFont("Arial", 11, QFont.Weight.Bold))
+        chart_title = QLabel("图表类型")
+        chart_title.setFont(QFont("Microsoft YaHei", 10, QFont.Weight.DemiBold))
+        chart_title.setFixedHeight(24)
         right_layout.addWidget(chart_title)
 
         chart_type_layout = QHBoxLayout()

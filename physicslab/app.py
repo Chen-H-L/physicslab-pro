@@ -5,47 +5,47 @@ from PyQt6.QtWidgets import QApplication, QMainWindow, QMessageBox, QTabWidget
 
 from .ai_assistant import AIAssistantDock
 from .data_workstation import DataWorkstationTab
-from .optics_tab import OpticsLabTab
+from .optics_tab import OpticsPatternAnalysisTab, OpticsSimulationTab
+from .thermodynamics_tab import ThermodynamicsLabTab
 from .vibration_tab import VibrationLabTab
 
 
 class MainWindow(QMainWindow):
-    """主窗口类"""
-    
+    """主窗口类。"""
+
     def __init__(self):
         super().__init__()
         self.init_ui()
-    
+
     def init_ui(self):
-        """初始化主窗口界面"""
+        """初始化主窗口界面。"""
         self.setWindowTitle("PhysicsLab Pro - 物理实验辅助工具")
         self.setGeometry(100, 100, 1400, 900)
-        
-        # 创建选项卡控件
+
         self.tab_widget = QTabWidget()
-        
-        # 创建两个主要页面
-        self.optics_tab = OpticsLabTab()
+
+        self.optics_simulation_tab = OpticsSimulationTab()
+        self.optics_pattern_tab = OpticsPatternAnalysisTab()
         self.data_tab = DataWorkstationTab()
+        self.thermodynamics_tab = ThermodynamicsLabTab()
         self.vibration_tab = VibrationLabTab()
-        
-        # 添加选项卡
-        self.tab_widget.addTab(self.optics_tab, "光学 AI 实验室")
-        self.tab_widget.addTab(self.data_tab, "数据工作台")
+        self.optics_tab = self.optics_pattern_tab
+
+        self.tab_widget.addTab(self.optics_simulation_tab, "光学虚拟仿真实验")
+        self.tab_widget.addTab(self.optics_pattern_tab, "光学图样分析")
+        self.tab_widget.addTab(self.thermodynamics_tab, "热力学模拟仿真实验")
         self.tab_widget.addTab(self.vibration_tab, "振动学实验室")
-        
-        # 设置选项卡为中央部件
+        self.tab_widget.addTab(self.data_tab, "数据工作台")
+
         self.setCentralWidget(self.tab_widget)
-        
-        # ===== 创建并添加 AI 虚拟助教停靠窗口 =====
+
         self.ai_assistant = AIAssistantDock(self)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.ai_assistant)
-        # 默认显示 AI 助手
         self.ai_assistant.show()
-        
-        # ===== 创建菜单栏 =====
+
         menubar = self.menuBar()
-        menubar.setStyleSheet("""
+        menubar.setStyleSheet(
+            """
             QMenuBar {
                 background-color: #f5f7fa;
                 color: #333333;
@@ -63,44 +63,41 @@ class MainWindow(QMainWindow):
                 background-color: #0078d4;
                 color: #ffffff;
             }
-        """)
-        
-        # 帮助菜单
+            """
+        )
+
         help_menu = menubar.addMenu("帮助(&H)")
-        
-        # 显示/隐藏 AI 助手菜单项
-        toggle_ai_action = help_menu.addAction("🤖 显示/隐藏 AI 助手")
+
+        toggle_ai_action = help_menu.addAction("显示/隐藏 AI 助手")
         toggle_ai_action.triggered.connect(self.toggle_ai_assistant)
-        
+
+        ai_settings_action = help_menu.addAction("AI 接口设置")
+        ai_settings_action.triggered.connect(self.ai_assistant.open_settings_dialog)
+
         help_menu.addSeparator()
-        
-        # 关于菜单项
-        about_action = help_menu.addAction("📖 关于 PhysicsLab Pro")
+
+        about_action = help_menu.addAction("关于 PhysicsLab Pro")
         about_action.triggered.connect(self.show_about)
-        
-        # 设置窗口样式
-        self.setStyleSheet("""
-            /* 主窗口背景 */
+
+        self.setStyleSheet(
+            """
             QMainWindow {
                 background-color: #f5f7fa;
             }
-            
-            /* 菜单栏 */
+
             QMenuBar {
                 background-color: #f5f7fa;
                 color: #333333;
                 border-bottom: 1px solid #d9d9d9;
             }
-            
-            /* 选项卡面板 */
+
             QTabWidget::pane {
                 border: 2px solid #d9d9d9;
                 border-radius: 8px;
                 background-color: #ffffff;
                 top: -1px;
             }
-            
-            /* 选项卡标签 */
+
             QTabBar::tab {
                 background-color: #ffffff;
                 color: #666666;
@@ -112,20 +109,19 @@ class MainWindow(QMainWindow):
                 font-weight: 500;
                 border: 1px solid #d9d9d9;
             }
-            
+
             QTabBar::tab:hover {
                 background-color: #f0f5ff;
                 color: #333333;
             }
-            
+
             QTabBar::tab:selected {
                 background-color: #0078d4;
                 color: #ffffff;
                 font-weight: 600;
                 border: 1px solid #0078d4;
             }
-            
-            /* 按钮样式 */
+
             QPushButton {
                 background-color: #0078d4;
                 color: #ffffff;
@@ -135,16 +131,15 @@ class MainWindow(QMainWindow):
                 font-weight: 600;
                 font-size: 12px;
             }
-            
+
             QPushButton:hover {
                 background-color: #106ebe;
             }
-            
+
             QPushButton:pressed {
                 background-color: #005a9e;
             }
-            
-            /* 表格样式 */
+
             QTableWidget {
                 background-color: #ffffff;
                 color: #333333;
@@ -153,17 +148,17 @@ class MainWindow(QMainWindow):
                 gridline-color: #d9d9d9;
                 font-size: 12px;
             }
-            
+
             QTableWidget::item {
                 padding: 4px;
                 border: none;
             }
-            
+
             QTableWidget::item:selected {
                 background-color: #0078d4;
                 color: #ffffff;
             }
-            
+
             QHeaderView::section {
                 background-color: #f5f7fa;
                 color: #333333;
@@ -172,8 +167,7 @@ class MainWindow(QMainWindow):
                 font-weight: 600;
                 font-size: 12px;
             }
-            
-            /* 输入框和文本区域 */
+
             QLineEdit, QTextEdit {
                 background-color: #ffffff;
                 color: #333333;
@@ -184,19 +178,17 @@ class MainWindow(QMainWindow):
                 selection-background-color: #0078d4;
                 selection-color: #ffffff;
             }
-            
+
             QLineEdit:focus, QTextEdit:focus {
                 border: 2px solid #0078d4;
                 background-color: #ffffff;
             }
-            
-            /* 标签样式 */
+
             QLabel {
                 color: #333333;
                 font-size: 12px;
             }
-            
-            /* 进度条样式 */
+
             QProgressBar {
                 border: 2px solid #d9d9d9;
                 border-radius: 6px;
@@ -205,59 +197,58 @@ class MainWindow(QMainWindow):
                 font-weight: 600;
                 background-color: #f5f7fa;
             }
-            
+
             QProgressBar::chunk {
                 background-color: #0078d4;
                 border-radius: 4px;
             }
-        """)
-    
+            """
+        )
+
     def toggle_ai_assistant(self):
-        """显示/隐藏 AI 助手"""
+        """显示或隐藏 AI 助手。"""
         if self.ai_assistant.isVisible():
             self.ai_assistant.hide()
         else:
             self.ai_assistant.show()
-    
+
     def show_about(self):
-        """显示关于对话框"""
+        """显示关于对话框。"""
         about_text = """
 <h3>PhysicsLab Pro v1.0</h3>
 <p>物理实验辅助工具</p>
 <hr>
 <p><b>功能模块：</b></p>
 <ul>
-    <li>🔬 <b>光学 AI 实验室</b> - 干涉/衍射条纹分析和光学虚拟仿真</li>
-    <li>📊 <b>数据工作台</b> - 数据拟合和不确定度计算</li>
-    <li>〰️ <b>振动学实验室</b> - 简谐振动仿真，以及同方向同频率简谐振动合成</li>
-    <li>🤖 <b>AI 虚拟助教</b> - 基于 DeepSeek API 的智能问答</li>
+    <li><b>光学虚拟仿真实验</b> - 牛顿环、劈尖干涉、双缝干涉等光学仿真实验</li>
+    <li><b>光学图样分析</b> - 干涉/衍射图片分析与视频亮度时序分析</li>
+    <li><b>数据工作台</b> - 数据拟合与不确定度计算</li>
+    <li><b>热力学模拟仿真实验</b> - 理想气体分子动理论模拟、等温/等体/等压过程的 P-V-T 联动分析</li>
+    <li><b>振动学实验室</b> - 简谐振动仿真及多种简谐运动合成</li>
+    <li><b>AI 虚拟助教</b> - 基于 DeepSeek API 的智能问答</li>
 </ul>
 <hr>
 <p><b>技术栈：</b></p>
 <ul>
-    <li>🖼️ GUI: PyQt6</li>
-    <li>🖼️ 图像处理: OpenCV, NumPy</li>
-    <li>📈 数据分析: Pandas, SciPy, Matplotlib</li>
-    <li>🤖 深度学习: PyTorch</li>
-    <li>💡 AI: DeepSeek API</li>
+    <li>GUI: PyQt6</li>
+    <li>图像处理: OpenCV, NumPy</li>
+    <li>数据分析: Pandas, SciPy, Matplotlib</li>
+    <li>深度学习: PyTorch</li>
+    <li>AI: DeepSeek API</li>
 </ul>
 <hr>
 <p>© 2024 PhysicsLab Pro. All rights reserved.</p>
 """
-        
+
         QMessageBox.about(self, "关于 PhysicsLab Pro", about_text)
 
 
 def main():
-    """主函数：启动应用程序"""
+    """启动应用程序。"""
     app = QApplication(sys.argv)
-    
-    # 设置应用程序样式
     app.setStyle("Fusion")
-    
-    # 创建并显示主窗口
+
     window = MainWindow()
     window.show()
-    
-    # 运行事件循环
+
     sys.exit(app.exec())

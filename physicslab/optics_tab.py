@@ -27,16 +27,41 @@ from algorithms import (
     smooth_signal,
 )
 
-from .simulation import SimulationWidget
+from .simulation import SimulationModelWidget, SimulationWidget
 from .widgets import ClickableImageLabel, MatplotlibCanvas
 from .workers import VideoWorker
+
+EXPERIMENT_IMAGE = "分析图片"
+EXPERIMENT_VIDEO = "分析视频"
+EXPERIMENT_SIMULATION = "虚拟仿真"
 
 
 class OpticsLabTab(QWidget):
     """页面 1: 光学 AI 实验室 (AI Optics Lab)"""
     
-    def __init__(self):
+    def __init__(
+        self,
+        allowed_experiments=None,
+        default_experiment=None,
+        show_experiment_selector=True,
+    ):
         super().__init__()
+        self.allowed_experiments = tuple(
+            allowed_experiments
+            or (EXPERIMENT_IMAGE, EXPERIMENT_VIDEO, EXPERIMENT_SIMULATION)
+        )
+        if not self.allowed_experiments:
+            raise ValueError("allowed_experiments must not be empty")
+        self.default_experiment = default_experiment or self.allowed_experiments[0]
+        if self.default_experiment not in self.allowed_experiments:
+            self.default_experiment = self.allowed_experiments[0]
+        self.show_experiment_selector = (
+            show_experiment_selector and len(self.allowed_experiments) > 1
+        )
+        self.simulation_only = (
+            len(self.allowed_experiments) == 1
+            and self.allowed_experiments[0] == EXPERIMENT_SIMULATION
+        )
         self.current_image = None  # 当前加载的图像
         self.video_path = None  # 当前视频路径
         self.video_worker = None  # 视频处理线程
@@ -60,16 +85,20 @@ class OpticsLabTab(QWidget):
         left_panel.setLayout(left_layout)
         
         # 实验类型选择
-        experiment_label = QLabel("实验类型:")
-        experiment_label.setFont(QFont("Arial", 12, QFont.Weight.Bold))
-        left_layout.addWidget(experiment_label)
+        self.experiment_label = QLabel("实验类型:")
+        self.experiment_label.setFont(QFont("Arial", 12, QFont.Weight.Bold))
+        left_layout.addWidget(self.experiment_label)
         
         self.experiment_combo = QComboBox()
-        self.experiment_combo.addItems(["分析图片", "分析视频", "虚拟仿真"])
+        self.experiment_combo.addItems(list(self.allowed_experiments))
         self.experiment_combo.currentTextChanged.connect(self.on_experiment_changed)
         left_layout.addWidget(self.experiment_combo)
         
-        left_layout.addSpacing(20)
+        if self.show_experiment_selector:
+            left_layout.addSpacing(20)
+        else:
+            self.experiment_label.hide()
+            self.experiment_combo.hide()
         
         # 图片分析控制组
         self.image_control_group = QGroupBox("图片分析控制")
@@ -115,7 +144,7 @@ class OpticsLabTab(QWidget):
         simulation_control_layout = QVBoxLayout()
         
         # 仿真实验类型选择
-        sim_experiment_label = QLabel("仿真实验:")
+        sim_experiment_label = QLabel("仿真实验类型:")
         simulation_control_layout.addWidget(sim_experiment_label)
         
         self.sim_experiment_combo = QComboBox()
@@ -125,7 +154,7 @@ class OpticsLabTab(QWidget):
         
         # 波长参数
         wavelength_layout = QHBoxLayout()
-        wavelength_label = QLabel("波长 (nm):")
+        wavelength_label = QLabel("波长 λ (nm):")
         wavelength_label.setMinimumWidth(100)
         wavelength_layout.addWidget(wavelength_label)
         
@@ -142,7 +171,7 @@ class OpticsLabTab(QWidget):
         
         # 牛顿环参数：曲率半径
         self.radius_layout = QHBoxLayout()
-        radius_label = QLabel("曲率半径 (mm):")
+        radius_label = QLabel("曲率半径 R (mm):")
         radius_label.setMinimumWidth(100)
         self.radius_layout.addWidget(radius_label)
         
@@ -159,7 +188,7 @@ class OpticsLabTab(QWidget):
         
         # 牛顿环和劈尖共用：间隙距离
         self.gap_layout = QHBoxLayout()
-        gap_label = QLabel("间隙距离 (nm):")
+        gap_label = QLabel("空气隙 d (nm):")
         gap_label.setMinimumWidth(100)
         self.gap_layout.addWidget(gap_label)
         
@@ -176,7 +205,7 @@ class OpticsLabTab(QWidget):
         
         # 视野缩放
         self.scale_layout = QHBoxLayout()
-        scale_label = QLabel("视野范围 (mm):")
+        scale_label = QLabel("视野范围 L (mm):")
         scale_label.setMinimumWidth(100)
         self.scale_layout.addWidget(scale_label)
         
@@ -193,7 +222,7 @@ class OpticsLabTab(QWidget):
         
         # 劈尖干涉参数：夹角
         self.angle_layout = QHBoxLayout()
-        angle_label = QLabel("劈尖夹角 (度):")
+        angle_label = QLabel("劈尖夹角 α (°):")
         angle_label.setMinimumWidth(100)
         self.angle_layout.addWidget(angle_label)
         
@@ -210,7 +239,7 @@ class OpticsLabTab(QWidget):
         
         # 双缝干涉参数：缝宽
         self.slit_width_layout = QHBoxLayout()
-        slit_width_label = QLabel("缝宽 (μm):")
+        slit_width_label = QLabel("缝宽 a (μm):")
         slit_width_label.setMinimumWidth(100)
         self.slit_width_layout.addWidget(slit_width_label)
         
@@ -227,7 +256,7 @@ class OpticsLabTab(QWidget):
         
         # 双缝干涉参数：缝间距
         self.slit_spacing_layout = QHBoxLayout()
-        slit_spacing_label = QLabel("缝间距 (μm):")
+        slit_spacing_label = QLabel("缝间距 d (μm):")
         slit_spacing_label.setMinimumWidth(100)
         self.slit_spacing_layout.addWidget(slit_spacing_label)
         
@@ -246,9 +275,9 @@ class OpticsLabTab(QWidget):
         left_layout.addWidget(self.simulation_control_group)
         
         # 分析结果文本框（左下角位置）
-        result_label = QLabel("分析结果:")
-        result_label.setFont(QFont("Arial", 10, QFont.Weight.Bold))
-        left_layout.addWidget(result_label)
+        self.result_label = QLabel("分析结果:")
+        self.result_label.setFont(QFont("Arial", 10, QFont.Weight.Bold))
+        left_layout.addWidget(self.result_label)
         
         self.result_text = QTextEdit()
         self.result_text.setMinimumHeight(120)
@@ -301,7 +330,7 @@ class OpticsLabTab(QWidget):
         right_layout.addWidget(display_frame, alignment=Qt.AlignmentFlag.AlignCenter)
         
         # 分析结果区域 - 只保留图表
-        result_group = QGroupBox("分析结果")
+        self.result_group = QGroupBox("分析结果")
         result_layout = QVBoxLayout()
         
         # Matplotlib 画布
@@ -321,8 +350,21 @@ class OpticsLabTab(QWidget):
         export_layout.addStretch()
         result_layout.addLayout(export_layout)
         
-        result_group.setLayout(result_layout)
-        right_layout.addWidget(result_group)
+        self.result_group.setLayout(result_layout)
+        right_layout.addWidget(self.result_group)
+
+        self.model_group = QGroupBox("实验模型")
+        model_layout = QVBoxLayout()
+        self.simulation_model_widget = SimulationModelWidget()
+        self.simulation_model_widget.setMinimumSize(420, 220)
+        self.simulation_model_widget.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Fixed,
+        )
+        model_layout.addWidget(self.simulation_model_widget)
+        self.model_group.setLayout(model_layout)
+        self.model_group.hide()
+        right_layout.addWidget(self.model_group)
         
         right_layout.addStretch()
         
@@ -343,17 +385,31 @@ class OpticsLabTab(QWidget):
         self.simulation_widget.setFixedSize(500, 350)
         self.simulation_widget.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         
-        # 初始化：显示图片分析控件
-        self.on_experiment_changed("分析图片")
+        if self.simulation_only:
+            self.result_label.hide()
+            self.result_text.hide()
+            self.result_group.hide()
+            self.model_group.show()
+
+        # 初始化：显示默认实验控件
+        self.experiment_combo.blockSignals(True)
+        self.experiment_combo.setCurrentText(self.default_experiment)
+        self.experiment_combo.blockSignals(False)
+        self.on_experiment_changed(self.default_experiment)
         self.on_sim_experiment_changed("牛顿环实验")
     
     def on_experiment_changed(self, text):
         """实验类型改变时的回调"""
+        if text not in self.allowed_experiments:
+            return
+
         self.image_control_group.setVisible(False)
         self.video_control_group.setVisible(False)
         self.simulation_control_group.setVisible(False)
 
-        if text == "分析图片":
+        if text == EXPERIMENT_IMAGE:
+            self.model_group.hide()
+            self.result_group.show()
             self.image_control_group.setVisible(True)
             # 显示图片分析控件
             for i in range(self.image_control_group.layout().count()):
@@ -384,7 +440,9 @@ class OpticsLabTab(QWidget):
             self.result_text.clear()
             self.plot_canvas.ax.clear()
             self.plot_canvas.draw()
-        elif text == "分析视频":
+        elif text == EXPERIMENT_VIDEO:
+            self.model_group.hide()
+            self.result_group.show()
             self.video_control_group.setVisible(True)
             # 显示视频分析控件
             for i in range(self.video_control_group.layout().count()):
@@ -415,7 +473,9 @@ class OpticsLabTab(QWidget):
             self.result_text.clear()
             self.plot_canvas.ax.clear()
             self.plot_canvas.draw()
-        elif text == "虚拟仿真":
+        elif text == EXPERIMENT_SIMULATION:
+            self.result_group.hide()
+            self.model_group.show()
             self.simulation_control_group.setVisible(True)
             # 隐藏图片分析控件
             for i in range(self.image_control_group.layout().count()):
@@ -502,32 +562,44 @@ class OpticsLabTab(QWidget):
         """仿真参数改变时的回调"""
         wavelength = self.wavelength_spinbox.value()
         current_text = self.sim_experiment_combo.currentText()
+        target_widgets = (self.simulation_widget, self.simulation_model_widget)
         
         # 根据仿真实验类型更新参数
         if current_text == "牛顿环实验":
             radius = self.radius_spinbox.value()
             gap_distance = self.gap_spinbox.value()
             scale = self.scale_spinbox.value()
-            self.simulation_widget.update_parameters(
-                0, wavelength, scale=scale,
-                radius=radius, gap_distance=gap_distance
-            )
+            for widget in target_widgets:
+                widget.update_parameters(
+                    0,
+                    wavelength,
+                    scale=scale,
+                    radius=radius,
+                    gap_distance=gap_distance,
+                )
         elif current_text == "劈尖干涉":
             angle_degrees = self.angle_spinbox.value()
             angle_radians = angle_degrees * 3.14159265359 / 180.0  # 度转弧度
             gap_distance = self.gap_spinbox.value()
             scale = self.scale_spinbox.value()
-            self.simulation_widget.update_parameters(
-                1, wavelength, scale=scale,
-                angle=angle_radians, gap_distance=gap_distance
-            )
+            for widget in target_widgets:
+                widget.update_parameters(
+                    1,
+                    wavelength,
+                    scale=scale,
+                    angle=angle_radians,
+                    gap_distance=gap_distance,
+                )
         elif current_text == "双缝干涉":
             slit_width = self.slit_width_spinbox.value()
             slit_spacing = self.slit_spacing_spinbox.value()
-            self.simulation_widget.update_parameters(
-                2, wavelength,
-                slit_width=slit_width, slit_spacing=slit_spacing
-            )
+            for widget in target_widgets:
+                widget.update_parameters(
+                    2,
+                    wavelength,
+                    slit_width=slit_width,
+                    slit_spacing=slit_spacing,
+                )
     
     def on_load_image(self):
         """加载图片按钮点击事件"""
@@ -800,7 +872,6 @@ class OpticsLabTab(QWidget):
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"""
         
         self.result_text.setText(result_str)
-    
     def on_progress_updated(self, progress):
         """更新进度条"""
         self.progress_bar.setValue(progress)
@@ -928,6 +999,28 @@ class OpticsLabTab(QWidget):
 • 波峰（红色 × 标记）代表亮条纹的位置
 • 条纹级数表示从 Point A 到 Point B 之间包含的完整条纹数量
 • 平均间距可用于计算波长（需要已知实验参数）
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"""
+        ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"""
         
         self.result_text.setText(result_str)
+
+
+class OpticsPatternAnalysisTab(OpticsLabTab):
+    """图片/视频图样分析页"""
+
+    def __init__(self):
+        super().__init__(
+            allowed_experiments=(EXPERIMENT_IMAGE, EXPERIMENT_VIDEO),
+            default_experiment=EXPERIMENT_IMAGE,
+            show_experiment_selector=True,
+        )
+
+
+class OpticsSimulationTab(OpticsLabTab):
+    """虚拟仿真页"""
+
+    def __init__(self):
+        super().__init__(
+            allowed_experiments=(EXPERIMENT_SIMULATION,),
+            default_experiment=EXPERIMENT_SIMULATION,
+            show_experiment_selector=False,
+        )

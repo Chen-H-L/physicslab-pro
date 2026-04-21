@@ -1,7 +1,9 @@
+import math
+
 import numpy as np
 from OpenGL import GL as gl
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QColor, QFont, QImage, QPainter, QPen, QVector2D
+from PyQt6.QtCore import QPointF, QRectF, Qt
+from PyQt6.QtGui import QColor, QFont, QImage, QPainter, QPainterPath, QPen, QVector2D
 from PyQt6.QtOpenGL import QOpenGLBuffer, QOpenGLShader, QOpenGLShaderProgram
 from PyQt6.QtOpenGL import QOpenGLVertexArrayObject
 from PyQt6.QtOpenGLWidgets import QOpenGLWidget
@@ -502,15 +504,6 @@ class SimulationWidget(QWidget):
         painter.setPen(QPen(QColor(255, 255, 255, 55), 1))
         painter.drawRoundedRect(self.rect().adjusted(1, 1, -2, -2), 8, 8)
 
-        badge_rect = self.rect().adjusted(14, 12, -14, -self.height() + 42)
-        painter.fillRect(badge_rect, QColor(10, 16, 28, 150))
-        painter.setPen(QColor('#edf3ff'))
-        painter.drawText(
-            badge_rect.adjusted(10, 0, -10, 0),
-            Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
-            f"{self._EXPERIMENT_NAMES.get(self.experiment_type, 'Optical Simulation')}  |  Compatible Render",
-        )
-
     @staticmethod
     def _wavelength_to_rgb(wavelength_nm):
         wavelength_nm = float(wavelength_nm)
@@ -533,6 +526,458 @@ class SimulationWidget(QWidget):
         if wavelength_nm < 645.0:
             return (1.0, -(wavelength_nm - 645.0) / 65.0, 0.0)
         return (1.0, 0.0, 0.0)
+
+
+class SimulationModelWidget(QWidget):
+    """Schematic apparatus model linked to the optical simulation parameters."""
+
+    _TITLE_MAP = {
+        0: "牛顿环实验模型",
+        1: "劈尖干涉实验模型",
+        2: "双缝干涉实验模型",
+    }
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setMinimumSize(320, 210)
+
+        self.experiment_type = 0
+        self.wavelength = 632.8
+        self.scale = 5.0
+        self.radius = 1000.0
+        self.gap_distance = 0.0
+        self.angle = 0.001
+        self.slit_width = 10.0
+        self.slit_spacing = 50.0
+
+    def update_parameters(self, experiment_type, wavelength, scale=None, **kwargs):
+        self.experiment_type = experiment_type
+        self.wavelength = wavelength
+        if scale is not None:
+            self.scale = scale
+
+        if experiment_type == 0:
+            self.radius = kwargs.get('radius', self.radius)
+            self.gap_distance = kwargs.get('gap_distance', self.gap_distance)
+        elif experiment_type == 1:
+            self.angle = kwargs.get('angle', self.angle)
+            self.gap_distance = kwargs.get('gap_distance', self.gap_distance)
+        elif experiment_type == 2:
+            self.slit_width = kwargs.get('slit_width', self.slit_width)
+            self.slit_spacing = kwargs.get('slit_spacing', self.slit_spacing)
+
+        self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.fillRect(self.rect(), QColor('#ffffff'))
+
+        panel_rect = QRectF(self.rect().adjusted(10, 10, -10, -10))
+        painter.setPen(QPen(QColor('#d5dfeb'), 1.2))
+        painter.setBrush(QColor('#fbfdff'))
+        painter.drawRoundedRect(panel_rect, 12, 12)
+
+        content_rect = panel_rect.adjusted(18, 14, -18, -16)
+        self._draw_model_title(
+            painter,
+            QRectF(content_rect.left(), content_rect.top(), content_rect.width(), 22),
+            self._TITLE_MAP.get(self.experiment_type, "实验模型"),
+        )
+
+        diagram_rect = content_rect.adjusted(0, 28, 0, 0)
+        if self.experiment_type == 0:
+            self._draw_newton_rings_model(painter, diagram_rect)
+        elif self.experiment_type == 1:
+            self._draw_wedge_model(painter, diagram_rect)
+        else:
+            self._draw_double_slit_model(painter, diagram_rect)
+
+        painter.end()
+
+    def _draw_newton_rings_model(self, painter, rect):
+        light_color = self._qt_color_from_wavelength(self.wavelength, 230)
+        outline_pen = QPen(QColor('#202a38'), 2.0)
+        thin_pen = QPen(QColor('#7f91a6'), 1.1, Qt.PenStyle.DashLine)
+        label_font = QFont()
+        label_font.setPointSize(10)
+
+        plate_top = rect.bottom() - 34
+        plate_rect = QRectF(rect.left() + 14, plate_top, rect.width() - 28, 22)
+        painter.setPen(QPen(QColor('#2b3646'), 1.8))
+        painter.setBrush(QColor(234, 241, 250, 225))
+        painter.drawRoundedRect(plate_rect, 2, 2)
+
+        axis_x = rect.left() + rect.width() * 0.48
+        center_gap_px = self._clamp(2.0 + self.gap_distance / 180.0, 2.0, 12.0)
+        contact_y = plate_top - center_gap_px
+        max_radius_px = max(contact_y - (rect.top() + 34.0), 46.0)
+        radius_px = min(float(np.interp(self.radius, [500.0, 5000.0], [92.0, 138.0])), max_radius_px)
+        center_y = contact_y - radius_px
+        max_dx = radius_px * 0.82
+
+        curve_points = []
+        for dx in np.linspace(-max_dx, max_dx, 180):
+            y = center_y + math.sqrt(max(radius_px * radius_px - dx * dx, 0.0))
+            curve_points.append(QPointF(axis_x + dx, y))
+        surface_path = QPainterPath(curve_points[0])
+        for point in curve_points[1:]:
+            surface_path.lineTo(point)
+
+        cap_height = max(radius_px * 0.55, 28.0)
+        cap_top_y = max(rect.top() + 8.0, curve_points[0].y() - cap_height)
+        top_left = QPointF(axis_x - max_dx * 0.86, cap_top_y)
+        top_right = QPointF(axis_x + max_dx * 0.86, cap_top_y)
+        body_path = QPainterPath(curve_points[0])
+        body_path.quadTo(QPointF(axis_x, cap_top_y - 10.0), curve_points[-1])
+        body_path.lineTo(top_right)
+        body_path.quadTo(QPointF(axis_x, max(rect.top() + 4.0, cap_top_y - 22.0)), top_left)
+        body_path.closeSubpath()
+
+        painter.setPen(QPen(Qt.PenStyle.NoPen))
+        painter.setBrush(QColor(225, 234, 246, 170))
+        painter.drawPath(body_path)
+        painter.setPen(outline_pen)
+        painter.drawPath(surface_path)
+
+        optical_axis_top = rect.top() + 18
+        painter.setPen(thin_pen)
+        painter.drawLine(QPointF(axis_x, optical_axis_top), QPointF(axis_x, plate_rect.bottom() + 8))
+
+        for x_factor in (-0.26, -0.08, 0.10, 0.28):
+            x_pos = axis_x + rect.width() * x_factor
+            self._draw_arrow(
+                painter,
+                QPointF(x_pos, rect.top() + 6),
+                QPointF(x_pos, rect.top() + 56),
+                light_color,
+                width=2.0,
+                head_size=7.0,
+            )
+        painter.setFont(label_font)
+        painter.setPen(QColor('#34495e'))
+        painter.drawText(QPointF(rect.left() + 22, rect.top() + 12), "入射光")
+
+        lambda_mm = max(self.wavelength * 1e-6, 1e-9)
+        gap_mm = max(self.gap_distance * 1e-6, 0.0)
+        sample_order = 5.0
+        sample_r_mm = math.sqrt(max(self.radius * (sample_order * lambda_mm + 2.0 * gap_mm), 0.0))
+        sample_fraction = self._clamp(sample_r_mm / 5.8, 0.20, 0.76)
+        sample_dx = max_dx * sample_fraction
+        sample_x = axis_x + sample_dx
+        sample_y = center_y + math.sqrt(max(radius_px * radius_px - sample_dx * sample_dx, 0.0))
+
+        radius_origin = QPointF(axis_x, center_y)
+        painter.setPen(QPen(QColor('#24374f'), 1.7))
+        painter.drawLine(radius_origin, QPointF(sample_x, sample_y))
+        painter.setFont(label_font)
+        painter.setPen(QColor('#1f2733'))
+        painter.drawText(
+            QPointF((radius_origin.x() + sample_x) / 2.0 + 8, (radius_origin.y() + sample_y) / 2.0 - 2),
+            "R",
+        )
+
+        self._draw_arrow(
+            painter,
+            QPointF(sample_x, sample_y),
+            QPointF(sample_x, plate_top),
+            QColor('#50657b'),
+            width=1.6,
+            head_size=5.5,
+            both_ends=True,
+        )
+        painter.setFont(label_font)
+        painter.setPen(QColor('#1f2733'))
+        painter.drawText(QPointF(sample_x + 8, (sample_y + plate_top) / 2.0 + 4), "d")
+
+        radius_line_y = plate_top - 8
+        self._draw_arrow(
+            painter,
+            QPointF(axis_x, radius_line_y),
+            QPointF(sample_x, radius_line_y),
+            QColor(light_color.red(), light_color.green(), light_color.blue(), 220),
+            width=1.8,
+            head_size=5.2,
+            both_ends=True,
+        )
+        painter.setFont(label_font)
+        painter.setPen(QColor('#1f2733'))
+        painter.drawText(QPointF((axis_x + sample_x) / 2.0 - 4, radius_line_y - 6), "r")
+
+        painter.setBrush(QColor('#ffffff'))
+        painter.setPen(QPen(QColor('#ff5a2c'), 1.8))
+        painter.drawEllipse(QPointF(sample_x, radius_line_y), 3.2, 3.2)
+        painter.setFont(label_font)
+        painter.setPen(QColor('#1f2733'))
+        painter.drawText(QPointF(axis_x - 10, plate_top + 18), "O")
+
+        parameter_rect = QRectF(rect.right() - 156, rect.top() + 4, 146, 88)
+        self._draw_parameter_panel(
+            painter,
+            parameter_rect,
+            [
+                ("λ", f"{self.wavelength:.1f} nm"),
+                ("R", f"{self.radius:.1f} mm"),
+                ("d", f"{self.gap_distance:.1f} nm"),
+                ("L", f"{self.scale:.2f} mm"),
+            ],
+        )
+
+    def _draw_wedge_model(self, painter, rect):
+        light_color = self._qt_color_from_wavelength(self.wavelength, 230)
+        outline_pen = QPen(QColor('#202a38'), 2.0)
+        label_font = QFont()
+        label_font.setPointSize(10)
+        panel_width = 146.0
+        panel_gap = 22.0
+        base_y = rect.bottom() - 34
+        plate_rect = QRectF(rect.left() + 20, base_y, rect.width() - 40, 18)
+
+        painter.setPen(QPen(QColor('#2b3646'), 1.6))
+        painter.setBrush(QColor(234, 241, 250, 225))
+        painter.drawRoundedRect(plate_rect, 2, 2)
+
+        left_x = rect.left() + 42
+        right_x = rect.right() - (panel_width + panel_gap)
+        gap_px = self._clamp(3.0 + self.gap_distance / 180.0, 3.0, 14.0)
+        opening_px = self._clamp(14.0 + self.angle * 9000.0, 14.0, 52.0)
+        thin_y = base_y - gap_px
+        thick_y = thin_y - opening_px
+
+        upper_glass = QPainterPath(QPointF(left_x, thin_y))
+        upper_glass.lineTo(QPointF(right_x, thick_y))
+        upper_glass.lineTo(QPointF(right_x, thick_y - 14))
+        upper_glass.lineTo(QPointF(left_x, thin_y - 14))
+        upper_glass.closeSubpath()
+
+        painter.setPen(QPen(Qt.PenStyle.NoPen))
+        painter.setBrush(QColor(223, 232, 246, 180))
+        painter.drawPath(upper_glass)
+        painter.setPen(outline_pen)
+        painter.drawLine(QPointF(left_x, thin_y), QPointF(right_x, thick_y))
+
+        for x_factor in (-0.32, -0.14, 0.04, 0.22):
+            x_pos = rect.center().x() + rect.width() * x_factor
+            target_y = thin_y - 10 if x_pos <= rect.center().x() else thick_y - 10
+            self._draw_arrow(
+                painter,
+                QPointF(x_pos, rect.top() + 8),
+                QPointF(x_pos, target_y),
+                light_color,
+                width=2.0,
+                head_size=7.0,
+            )
+        painter.setFont(label_font)
+        painter.setPen(QColor('#34495e'))
+        painter.drawText(QPointF(rect.left() + 22, rect.top() + 14), "入射光")
+
+        marker_x = right_x - (right_x - left_x) * 0.18
+        marker_y = thin_y + (thick_y - thin_y) * ((marker_x - left_x) / max(right_x - left_x, 1.0))
+        self._draw_arrow(
+            painter,
+            QPointF(marker_x + 20, marker_y),
+            QPointF(marker_x + 20, base_y),
+            QColor('#50657b'),
+            width=1.6,
+            head_size=5.5,
+            both_ends=True,
+        )
+        painter.setFont(label_font)
+        painter.setPen(QColor('#1f2733'))
+        painter.drawText(QPointF(marker_x + 26, (marker_y + base_y) / 2.0 + 4), "d")
+
+        alpha_rect = QRectF(left_x + 14, thin_y - 4, 40, 30)
+        painter.setPen(QPen(QColor('#51657c'), 1.5))
+        painter.drawArc(alpha_rect, -16 * 8, -16 * 26)
+        painter.setFont(label_font)
+        painter.drawText(QPointF(left_x + 44, thin_y - 2), "α")
+
+        spacing_px = self._clamp(10.0 + 180.0 * self.wavelength / max(self.angle * 1e6, 1.0), 10.0, 30.0)
+        painter.setPen(QPen(QColor(light_color.red(), light_color.green(), light_color.blue(), 145), 1.8))
+        stripe_x = left_x + 30
+        while stripe_x < right_x - 18:
+            top_y = thin_y + (thick_y - thin_y) * ((stripe_x - left_x) / max(right_x - left_x, 1.0))
+            painter.drawLine(QPointF(stripe_x, base_y - 2), QPointF(stripe_x, top_y + 2))
+            stripe_x += spacing_px
+
+        self._draw_parameter_panel(
+            painter,
+            QRectF(rect.right() - panel_width, rect.top() + 4, panel_width, 88),
+            [
+                ("λ", f"{self.wavelength:.1f} nm"),
+                ("α", f"{math.degrees(self.angle):.3f}°"),
+                ("d", f"{self.gap_distance:.1f} nm"),
+                ("L", f"{self.scale:.2f} mm"),
+            ],
+        )
+
+    def _draw_double_slit_model(self, painter, rect):
+        light_color = self._qt_color_from_wavelength(self.wavelength, 235)
+        outline_pen = QPen(QColor('#202a38'), 2.0)
+        label_font = QFont()
+        label_font.setPointSize(10)
+        panel_width = 138.0
+        panel_gap = 26.0
+        source_x = rect.left() + 34
+        barrier_x = rect.left() + rect.width() * 0.40
+        screen_x = rect.right() - (panel_width + panel_gap)
+        center_y = rect.center().y()
+
+        painter.setPen(outline_pen)
+        painter.drawLine(QPointF(barrier_x, rect.top() + 14), QPointF(barrier_x, rect.bottom() - 14))
+        painter.drawLine(QPointF(screen_x, rect.top() + 8), QPointF(screen_x, rect.bottom() - 8))
+
+        slit_spacing_px = self._clamp(18.0 + (self.slit_spacing - 10.0) * 0.28, 18.0, 64.0)
+        slit_half_height = self._clamp(3.0 + self.slit_width * 0.08, 3.0, 11.0)
+        upper_slit_y = center_y - slit_spacing_px / 2.0
+        lower_slit_y = center_y + slit_spacing_px / 2.0
+
+        painter.setPen(QPen(QColor('#fbfdff'), 7))
+        painter.drawLine(QPointF(barrier_x, upper_slit_y - slit_half_height), QPointF(barrier_x, upper_slit_y + slit_half_height))
+        painter.drawLine(QPointF(barrier_x, lower_slit_y - slit_half_height), QPointF(barrier_x, lower_slit_y + slit_half_height))
+
+        source_rect = QRectF(source_x - 10, center_y - 10, 20, 20)
+        painter.setPen(QPen(QColor('#32465a'), 1.5))
+        painter.setBrush(QColor(light_color.red(), light_color.green(), light_color.blue(), 60))
+        painter.drawEllipse(source_rect)
+        painter.setFont(label_font)
+        painter.setPen(QColor('#1f2733'))
+        painter.drawText(QPointF(source_x - 4, center_y - 16), "S")
+
+        self._draw_arrow(
+            painter,
+            QPointF(source_x + 12, center_y),
+            QPointF(barrier_x - 18, center_y),
+            light_color,
+            width=2.4,
+            head_size=8.0,
+        )
+
+        fringe_spacing = self._clamp(5.0 + 220.0 * self.wavelength / max(self.slit_spacing * 1000.0, 1.0), 6.0, 16.0)
+        envelope_half = self._clamp(22.0 + 220.0 * self.wavelength / max(self.slit_width * 1000.0, 1.0), 28.0, rect.height() * 0.34)
+
+        painter.setPen(QPen(light_color, 1.8))
+        painter.drawLine(QPointF(barrier_x, upper_slit_y), QPointF(screen_x, center_y - fringe_spacing * 2.0))
+        painter.drawLine(QPointF(barrier_x, lower_slit_y), QPointF(screen_x, center_y + fringe_spacing * 2.0))
+
+        painter.setPen(QPen(Qt.PenStyle.NoPen))
+        band_index = 0
+        offset = -envelope_half
+        while offset <= envelope_half:
+            distance_ratio = 1.0 - abs(offset) / max(envelope_half, 1.0)
+            alpha = int(self._clamp(50 + distance_ratio * 160 - (band_index % 2) * 70, 25, 210))
+            band_color = QColor(light_color.red(), light_color.green(), light_color.blue(), alpha)
+            painter.setBrush(band_color)
+            painter.drawRoundedRect(
+                QRectF(screen_x - 8, center_y + offset - 1.8, 16, 3.6),
+                2,
+                2,
+            )
+            band_index += 1
+            offset += fringe_spacing
+
+        painter.setPen(QPen(QColor('#34495e'), 1.5))
+        self._draw_arrow(
+            painter,
+            QPointF(barrier_x + 18, upper_slit_y),
+            QPointF(barrier_x + 18, lower_slit_y),
+            QColor('#34495e'),
+            width=1.5,
+            head_size=5.0,
+            both_ends=True,
+        )
+        painter.setFont(label_font)
+        painter.drawText(QPointF(barrier_x + 24, center_y + 4), "d")
+
+        self._draw_arrow(
+            painter,
+            QPointF(barrier_x - 14, upper_slit_y - slit_half_height),
+            QPointF(barrier_x - 14, upper_slit_y + slit_half_height),
+            QColor('#34495e'),
+            width=1.4,
+            head_size=4.5,
+            both_ends=True,
+        )
+        painter.setFont(label_font)
+        painter.drawText(QPointF(barrier_x - 34, upper_slit_y + 4), "a")
+
+        painter.setFont(label_font)
+        painter.setPen(QColor('#34495e'))
+        painter.drawText(QPointF(rect.left() + 22, rect.top() + 14), "单色光")
+
+        self._draw_parameter_panel(
+            painter,
+            QRectF(rect.right() - panel_width, rect.top() + 6, panel_width, 74),
+            [
+                ("λ", f"{self.wavelength:.1f} nm"),
+                ("a", f"{self.slit_width:.1f} μm"),
+                ("d", f"{self.slit_spacing:.1f} μm"),
+            ],
+        )
+
+    def _draw_model_title(self, painter, rect, title):
+        font = QFont()
+        font.setPointSize(11)
+        font.setBold(True)
+        painter.setFont(font)
+        painter.setPen(QColor('#223247'))
+        painter.drawText(rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, title)
+
+    def _draw_parameter_panel(self, painter, rect, entries):
+        painter.setPen(QPen(QColor('#d6e0ed'), 1.0))
+        painter.setBrush(QColor(255, 255, 255, 235))
+        painter.drawRoundedRect(rect, 10, 10)
+
+        label_font = QFont()
+        label_font.setPointSize(9)
+        label_font.setBold(True)
+        value_font = QFont()
+        value_font.setPointSize(9)
+
+        line_height = 18
+        y = rect.top() + 18
+        for symbol, value in entries:
+            painter.setFont(label_font)
+            painter.setPen(QColor('#2e4257'))
+            painter.drawText(QPointF(rect.left() + 10, y), f"{symbol} =")
+            painter.setFont(value_font)
+            painter.setPen(QColor('#55697c'))
+            painter.drawText(QPointF(rect.left() + 36, y), value)
+            y += line_height
+
+    @staticmethod
+    def _draw_arrow(painter, start, end, color, width=2.0, head_size=7.0, both_ends=False):
+        def draw_head(tail, tip):
+            angle = math.atan2(tip.y() - tail.y(), tip.x() - tail.x())
+            left = QPointF(
+                tip.x() - head_size * math.cos(angle - math.pi / 6.0),
+                tip.y() - head_size * math.sin(angle - math.pi / 6.0),
+            )
+            right = QPointF(
+                tip.x() - head_size * math.cos(angle + math.pi / 6.0),
+                tip.y() - head_size * math.sin(angle + math.pi / 6.0),
+            )
+            painter.drawLine(tip, left)
+            painter.drawLine(tip, right)
+
+        pen = QPen(color, width)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        painter.setPen(pen)
+        painter.drawLine(start, end)
+        draw_head(start, end)
+        if both_ends:
+            draw_head(end, start)
+
+    @staticmethod
+    def _qt_color_from_wavelength(wavelength_nm, alpha=255):
+        red, green, blue = SimulationWidget._wavelength_to_rgb(wavelength_nm)
+        color = QColor(int(red * 255), int(green * 255), int(blue * 255))
+        color.setAlpha(int(alpha))
+        return color
+
+    @staticmethod
+    def _clamp(value, minimum, maximum):
+        return max(minimum, min(maximum, value))
 
 
 class VirtualLabTab(QWidget):
