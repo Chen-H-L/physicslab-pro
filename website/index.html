@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="物演智启 PhysicsLab Pro 是面向物理实验教学的桌面端仿真与数据分析平台，覆盖光学、热学、振动学、数据处理与 AI 助教。"
+    />
+    <title>物演智启 PhysicsLab Pro</title>
+    <link rel="stylesheet" href="./assets/css/styles.css" />
+  </head>
+  <body>
+    <header class="site-header" data-header>
+      <a class="brand" href="#top" aria-label="物演智启首页">
+        <span class="brand-mark" aria-hidden="true">P</span>
+        <span>
+          <strong>物演智启</strong>
+          <small>PhysicsLab Pro</small>
+        </span>
+      </a>
+      <nav class="site-nav" aria-label="主导航">
+        <a href="#modules">功能模块</a>
+        <a href="#showcase">界面展示</a>
+        <a href="#workflow">应用流程</a>
+        <a href="#tech">技术栈</a>
+      </nav>
+      <a class="header-action" href="../dist/PhysicsLabPro/PhysicsLabPro.exe">获取程序</a>
+    </header>
+
+    <main id="top">
+      <section class="hero" aria-labelledby="hero-title">
+        <div class="hero-bg-carousel" aria-hidden="true">
+          <img
+            class="hero-bg is-active"
+            src="./assets/images/app-optics-simulation.png"
+            alt=""
+            data-hero-slide
+          />
+          <img
+            class="hero-bg"
+            src="./assets/images/app-optics-analysis.png"
+            alt=""
+            data-hero-slide
+          />
+          <img
+            class="hero-bg"
+            src="./assets/images/app-vibration-lab.png"
+            alt=""
+            data-hero-slide
+          />
+          <img
+            class="hero-bg"
+            src="./assets/images/app-data-workstation.png"
+            alt=""
+            data-hero-slide
+          />
+        </div>
+        <div class="hero-shade" aria-hidden="true"></div>
+        <button class="hero-control hero-control-prev" type="button" aria-label="上一张背景图" data-carousel-prev>
+          <span aria-hidden="true">‹</span>
+        </button>
+        <button class="hero-control hero-control-next" type="button" aria-label="下一张背景图" data-carousel-next>
+          <span aria-hidden="true">›</span>
+        </button>
+        <div class="hero-content">
+          <p class="eyebrow">物理实验教学仿真与分析平台</p>
+          <h1 id="hero-title">物演智启 PhysicsLab Pro</h1>
+          <p class="hero-lede">
+            将光学干涉、热力学过程、振动合成、数据拟合与 AI 答疑整合在同一套桌面工具中，
+            让课堂演示、实验预习和课后探究更直观、更可操作。
+          </p>
+          <div class="hero-actions" aria-label="首屏操作">
+            <a class="primary-action" href="../dist/PhysicsLabPro/PhysicsLabPro.exe">下载 Windows 版</a>
+            <a class="secondary-action" href="#showcase">查看界面</a>
+          </div>
+          <dl class="hero-stats" aria-label="产品能力概览">
+            <div>
+              <dt>5</dt>
+              <dd>实验与分析模块</dd>
+            </div>
+            <div>
+              <dt>AI</dt>
+              <dd>右侧虚拟助教</dd>
+            </div>
+            <div>
+              <dt>PyQt6</dt>
+              <dd>桌面端交互体验</dd>
+            </div>
+          </dl>
+          <div class="hero-dots" aria-label="背景图切换">
+            <button class="is-active" type="button" aria-label="切换到光学仿真界面" data-hero-dot></button>
+            <button type="button" aria-label="切换到光学图样分析界面" data-hero-dot></button>
+            <button type="button" aria-label="切换到振动学实验室界面" data-hero-dot></button>
+            <button type="button" aria-label="切换到数据工作台界面" data-hero-dot></button>
+          </div>
+        </div>
+      </section>
+
+      <section class="intro section-band" aria-label="平台简介">
+        <div class="section-inner intro-grid">
+          <div>
+            <p class="section-kicker">面向教学场景设计</p>
+            <h2>把抽象规律变成可观察、可调整、可分析的实验过程。</h2>
+          </div>
+          <p>
+            平台围绕“仿真演示、图样分析、数据处理、智能答疑”组织工作流，适合教师课堂演示、
+            学生实验预习、微课素材制作和课程项目展示。界面保留清晰的参数控制、图像反馈和结果输出，
+            帮助使用者从现象一路走到模型和结论。
+          </p>
+        </div>
+      </section>
+
+      <section id="modules" class="section" aria-labelledby="modules-title">
+        <div class="section-inner">
+          <div class="section-heading">
+            <p class="section-kicker">核心能力</p>
+            <h2 id="modules-title">一套工具覆盖完整实验教学链路</h2>
+          </div>
+          <div class="module-grid">
+            <article class="module-card">
+              <span class="module-index">01</span>
+              <h3>光学虚拟仿真</h3>
+              <p>支持牛顿环、劈尖干涉、双缝干涉，参数调整后实时生成干涉图样与实验模型示意。</p>
+            </article>
+            <article class="module-card">
+              <span class="module-index">02</span>
+              <h3>光学图样分析</h3>
+              <p>从图片或视频中提取亮度分布，完成峰值统计、条纹间距分析和结果导出。</p>
+            </article>
+            <article class="module-card">
+              <span class="module-index">03</span>
+              <h3>热力学模拟</h3>
+              <p>展示理想气体分子运动、活塞变化和 P-V-T 图像联动，便于讲解状态过程。</p>
+            </article>
+            <article class="module-card">
+              <span class="module-index">04</span>
+              <h3>振动学实验室</h3>
+              <p>覆盖简谐振动、同方向合成、拍振和正交合成，支持 GIF 微课素材导出。</p>
+            </article>
+            <article class="module-card">
+              <span class="module-index">05</span>
+              <h3>数据工作台</h3>
+              <p>提供数据录入、统计分析、自动拟合与不确定度计算，承接实验结果处理。</p>
+            </article>
+            <article class="module-card accent-card">
+              <span class="module-index">AI</span>
+              <h3>虚拟助教</h3>
+              <p>兼容 OpenAI Chat Completions 风格接口，可结合实验现象、曲线和问题进行答疑。</p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section id="showcase" class="section showcase" aria-labelledby="showcase-title">
+        <div class="section-inner">
+          <div class="section-heading showcase-heading">
+            <div>
+              <p class="section-kicker">真实界面</p>
+              <h2 id="showcase-title">从演示到分析，界面围绕课堂工作流展开</h2>
+            </div>
+            <p>
+              每个页面都保留参数、图像、曲线和结果区域，让教师能边调节边讲解，学生能边观察边验证。
+            </p>
+          </div>
+          <div class="showcase-grid">
+            <figure class="feature-shot large-shot">
+              <img src="./assets/images/app-optics-simulation.png" alt="光学虚拟仿真实验界面" />
+              <figcaption>
+                <strong>光学虚拟仿真</strong>
+                <span>牛顿环图样、实验模型和 AI 助教同屏呈现。</span>
+              </figcaption>
+            </figure>
+            <figure class="feature-shot">
+              <img src="./assets/images/app-optics-analysis.png" alt="光学图样分析界面" />
+              <figcaption>
+                <strong>图样分析</strong>
+                <span>支持图片与视频亮度时序分析。</span>
+              </figcaption>
+            </figure>
+            <figure class="feature-shot">
+              <img src="./assets/images/app-vibration-lab.png" alt="振动学实验室界面" />
+              <figcaption>
+                <strong>振动学实验室</strong>
+                <span>轨迹、相量和曲线联动展示。</span>
+              </figcaption>
+            </figure>
+            <figure class="feature-shot">
+              <img src="./assets/images/app-data-workstation.png" alt="数据工作台界面" />
+              <figcaption>
+                <strong>数据工作台</strong>
+                <span>统计、拟合和不确定度计算集中处理。</span>
+              </figcaption>
+            </figure>
+          </div>
+        </div>
+      </section>
+
+      <section id="workflow" class="section section-band" aria-labelledby="workflow-title">
+        <div class="section-inner">
+          <div class="section-heading">
+            <p class="section-kicker">课堂使用路径</p>
+            <h2 id="workflow-title">从提出问题到形成结论，只保留必要步骤</h2>
+          </div>
+          <ol class="workflow-list">
+            <li>
+              <span>设定实验</span>
+              <p>选择实验类型，调整波长、缝距、体积、频率或数据输入方式。</p>
+            </li>
+            <li>
+              <span>观察现象</span>
+              <p>实时查看干涉图样、分子运动、振动轨迹和动态图表。</p>
+            </li>
+            <li>
+              <span>分析数据</span>
+              <p>提取曲线、统计峰值、拟合模型并计算实验不确定度。</p>
+            </li>
+            <li>
+              <span>组织表达</span>
+              <p>结合 AI 助教整理现象解释、公式关系和实验结论。</p>
+            </li>
+          </ol>
+        </div>
+      </section>
+
+      <section id="tech" class="section tech-section" aria-labelledby="tech-title">
+        <div class="section-inner tech-grid">
+          <div>
+            <p class="section-kicker">技术实现</p>
+            <h2 id="tech-title">稳定的桌面端架构，服务高频教学操作</h2>
+            <p>
+              项目以 PyQt6 作为界面底座，结合 NumPy、SciPy、OpenCV、Matplotlib 与 Pandas 完成模拟、
+              图像处理和数据分析，并通过后台线程处理视频分析与 AI 请求。
+            </p>
+          </div>
+          <ul class="tech-list" aria-label="技术栈列表">
+            <li>PyQt6 桌面界面</li>
+            <li>OpenCV 图像与视频处理</li>
+            <li>NumPy / SciPy 科学计算</li>
+            <li>Matplotlib 嵌入式图表</li>
+            <li>Pandas 数据表处理</li>
+            <li>OpenAI SDK 兼容接口</li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="final-cta" aria-labelledby="final-title">
+        <div class="section-inner final-grid">
+          <div>
+            <p class="section-kicker">已生成 Windows 可执行版</p>
+            <h2 id="final-title">把物理实验带进一个更直观的操作界面。</h2>
+          </div>
+          <a class="primary-action dark-action" href="../dist/PhysicsLabPro/PhysicsLabPro.exe">下载程序</a>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="section-inner footer-inner">
+        <p>© 2026 物演智启 PhysicsLab Pro</p>
+        <a href="#top">返回顶部</a>
+      </div>
+    </footer>
+
+    <script src="./assets/js/main.js"></script>
+  </body>
+</html>

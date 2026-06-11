@@ -1,19 +1,25 @@
 import time
+from io import BytesIO
+from pathlib import Path
 from fractions import Fraction
 
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
-from PyQt6.QtCore import QTimer, Qt
-from PyQt6.QtGui import QColor, QFont, QPainter, QPen
+from PyQt6.QtCore import QBuffer, QByteArray, QIODevice, QSignalBlocker, QTimer, Qt, pyqtSignal
+from PyQt6.QtGui import QColor, QFont, QImage, QPainter, QPen
 from PyQt6.QtWidgets import (
+    QAbstractSpinBox,
+    QApplication,
     QComboBox,
     QDoubleSpinBox,
+    QFileDialog,
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
+    QMessageBox,
     QPushButton,
     QScrollArea,
     QSizePolicy,
@@ -22,6 +28,8 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+
+from .widgets import SliderSpinBox
 
 
 plt.rcParams["font.sans-serif"] = ["SimHei", "Microsoft YaHei", "Arial Unicode MS", "DejaVu Sans"]
@@ -51,6 +59,96 @@ def _draw_legend_item(painter, x, y, color, text):
     painter.setPen(QColor("#334155"))
     painter.setFont(QFont("Microsoft YaHei", 9))
     painter.drawText(int(x + 12), int(y + 4), text)
+
+
+class PhaseInputWidget(QWidget):
+    valueChanged = pyqtSignal(float)
+
+    def __init__(self, value=0.0, parent=None):
+        super().__init__(parent)
+        self._value = 0.0
+        self._decimals = 4
+
+        self.radians_spinbox = QDoubleSpinBox(self)
+        self.radians_spinbox.setRange(-np.pi, np.pi)
+        self.radians_spinbox.setDecimals(self._decimals)
+        self.radians_spinbox.setSingleStep(0.1)
+        self.radians_spinbox.setSuffix(" rad")
+        self.radians_spinbox.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
+        self.radians_spinbox.setKeyboardTracking(False)
+        self.radians_spinbox.setAccelerated(True)
+        self.radians_spinbox.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.radians_spinbox.setMinimumWidth(128)
+
+        self.degrees_spinbox = QDoubleSpinBox(self)
+        self.degrees_spinbox.setRange(-180.0, 180.0)
+        self.degrees_spinbox.setDecimals(2)
+        self.degrees_spinbox.setSingleStep(5.0)
+        self.degrees_spinbox.setSuffix(" °")
+        self.degrees_spinbox.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
+        self.degrees_spinbox.setKeyboardTracking(False)
+        self.degrees_spinbox.setAccelerated(True)
+        self.degrees_spinbox.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.degrees_spinbox.setMinimumWidth(112)
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+        layout.addWidget(self.radians_spinbox)
+        layout.addWidget(self.degrees_spinbox)
+
+        self.radians_spinbox.valueChanged.connect(self._on_radians_changed)
+        self.degrees_spinbox.valueChanged.connect(self._on_degrees_changed)
+        self.setValue(value)
+
+    def _clamp_radians(self, value):
+        return max(-np.pi, min(np.pi, float(value)))
+
+    def _apply_value(self, value, emit_signal):
+        new_value = self._clamp_radians(value)
+        old_value = self._value
+
+        rad_blocker = QSignalBlocker(self.radians_spinbox)
+        deg_blocker = QSignalBlocker(self.degrees_spinbox)
+        self.radians_spinbox.setValue(new_value)
+        self.degrees_spinbox.setValue(np.degrees(new_value))
+        del deg_blocker
+        del rad_blocker
+
+        self._value = new_value
+        if emit_signal and not self.signalsBlocked() and abs(old_value - new_value) > 5e-5:
+            self.valueChanged.emit(new_value)
+
+    def _on_radians_changed(self, value):
+        self._apply_value(value, emit_signal=True)
+
+    def _on_degrees_changed(self, value):
+        self._apply_value(np.radians(value), emit_signal=True)
+
+    def value(self):
+        return self._value
+
+    def setValue(self, value):
+        self._apply_value(value, emit_signal=True)
+
+    def minimum(self):
+        return -np.pi
+
+    def maximum(self):
+        return np.pi
+
+    def setKeyboardTracking(self, enabled):
+        self.radians_spinbox.setKeyboardTracking(enabled)
+        self.degrees_spinbox.setKeyboardTracking(enabled)
+
+    def setAccelerated(self, enabled):
+        self.radians_spinbox.setAccelerated(enabled)
+        self.degrees_spinbox.setAccelerated(enabled)
+
+    def setMinimumHeight(self, min_height):
+        super().setMinimumHeight(int(min_height))
+        self.radians_spinbox.setMinimumHeight(int(min_height))
+        self.degrees_spinbox.setMinimumHeight(int(min_height))
 
 
 class SpringOscillatorWidget(QWidget):
@@ -98,7 +196,7 @@ class SpringOscillatorWidget(QWidget):
         spring_y = int(mid_y)
         segment_count = 12
         lead = 16
-        usable = max(24, spring_end_x - spring_start_x - lead * 2)
+        usable = max(32, spring_end_x - spring_start_x - lead * 2)
         step = usable / segment_count
         points = [(spring_start_x, spring_y), (spring_start_x + lead, spring_y)]
         for index in range(segment_count):
@@ -564,6 +662,8 @@ class VibrationLabTab(QWidget):
         self.current_time = 0.0
         self.duration = 6.0
         self.last_tick = None
+        self.micro_lesson_duration = 5.0
+        self.micro_lesson_fps = 15
 
         self.t_values = np.linspace(0.0, self.duration, 1200)
         self.x_values = np.zeros_like(self.t_values)
@@ -882,6 +982,7 @@ class VibrationLabTab(QWidget):
         visual_panel.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
         right_layout.addWidget(visual_panel, 0)
         right_layout.addWidget(self.curve_group, 1)
+        self.record_widget = right_panel
 
         splitter.addWidget(left_scroll)
         splitter.addWidget(right_panel)
@@ -899,7 +1000,7 @@ class VibrationLabTab(QWidget):
         self.amplitude_spin = self._create_spinbox(0.01, 1_000_000.0, 20.0, " cm", 3, 1.0)
         self.omega_spin = self._create_spinbox(0.001, 10_000.0, 3.0, " rad/s", 4, 0.1)
         self.spring_spin = self._create_spinbox(0.001, 1_000_000.0, 10.0, " N/m", 4, 1.0)
-        self.phase_spin = self._create_spinbox(-1_000.0, 1_000.0, 0.0, " rad", 4, 0.1)
+        self.phase_spin = self._create_phase_input(0.0)
 
         rows = [
             ("振幅 A", self.amplitude_spin),
@@ -929,9 +1030,9 @@ class VibrationLabTab(QWidget):
         layout.setVerticalSpacing(8)
 
         self.compound_amplitude_1_spin = self._create_spinbox(0.01, 1_000_000.0, 20.0, " cm", 3, 1.0)
-        self.compound_phase_1_spin = self._create_spinbox(-1_000.0, 1_000.0, 0.0, " rad", 4, 0.1)
+        self.compound_phase_1_spin = self._create_compact_phase_input(0.0)
         self.compound_amplitude_2_spin = self._create_spinbox(0.01, 1_000_000.0, 12.0, " cm", 3, 1.0)
-        self.compound_phase_2_spin = self._create_spinbox(-1_000.0, 1_000.0, 1.2, " rad", 4, 0.1)
+        self.compound_phase_2_spin = self._create_compact_phase_input(1.2)
         self.compound_omega_spin = self._create_spinbox(0.001, 10_000.0, 3.0, " rad/s", 4, 0.1)
 
         rows = [
@@ -978,7 +1079,7 @@ class VibrationLabTab(QWidget):
         self.diff_special_amplitude_spin = self._create_spinbox(0.01, 1_000_000.0, 20.0, " cm", 3, 1.0)
         self.diff_special_omega_1_spin = self._create_spinbox(0.001, 10_000.0, 3.0, " rad/s", 4, 0.1)
         self.diff_special_omega_2_spin = self._create_spinbox(0.001, 10_000.0, 3.8, " rad/s", 4, 0.1)
-        self.diff_special_phase_spin = self._create_spinbox(-1_000.0, 1_000.0, 0.0, " rad", 4, 0.1)
+        self.diff_special_phase_spin = self._create_compact_phase_input(0.0)
 
         special_rows = [
             ("共同振幅 A", self.diff_special_amplitude_spin),
@@ -997,10 +1098,10 @@ class VibrationLabTab(QWidget):
         general_layout.setVerticalSpacing(8)
 
         self.diff_general_amplitude_1_spin = self._create_spinbox(0.01, 1_000_000.0, 20.0, " cm", 3, 1.0)
-        self.diff_general_phase_1_spin = self._create_spinbox(-1_000.0, 1_000.0, 0.0, " rad", 4, 0.1)
+        self.diff_general_phase_1_spin = self._create_compact_phase_input(0.0)
         self.diff_general_omega_1_spin = self._create_spinbox(0.001, 10_000.0, 3.0, " rad/s", 4, 0.1)
         self.diff_general_amplitude_2_spin = self._create_spinbox(0.01, 1_000_000.0, 12.0, " cm", 3, 1.0)
-        self.diff_general_phase_2_spin = self._create_spinbox(-1_000.0, 1_000.0, 1.1, " rad", 4, 0.1)
+        self.diff_general_phase_2_spin = self._create_compact_phase_input(1.1)
         self.diff_general_omega_2_spin = self._create_spinbox(0.001, 10_000.0, 4.3, " rad/s", 4, 0.1)
 
         general_rows = [
@@ -1042,9 +1143,9 @@ class VibrationLabTab(QWidget):
         layout.setVerticalSpacing(8)
 
         self.orthogonal_amplitude_x_spin = self._create_spinbox(0.01, 1_000_000.0, 20.0, " cm", 3, 1.0)
-        self.orthogonal_phase_x_spin = self._create_spinbox(-1_000.0, 1_000.0, 0.0, " rad", 4, 0.1)
+        self.orthogonal_phase_x_spin = self._create_compact_phase_input(0.0)
         self.orthogonal_amplitude_y_spin = self._create_spinbox(0.01, 1_000_000.0, 12.0, " cm", 3, 1.0)
-        self.orthogonal_phase_y_spin = self._create_spinbox(-1_000.0, 1_000.0, np.pi / 2, " rad", 4, 0.1)
+        self.orthogonal_phase_y_spin = self._create_compact_phase_input(np.pi / 2)
         self.orthogonal_omega_spin = self._create_spinbox(0.001, 10_000.0, 3.0, " rad/s", 4, 0.1)
 
         rows = [
@@ -1094,10 +1195,10 @@ class VibrationLabTab(QWidget):
         layout.addWidget(self.orthogonal_diff_preset_combo, 0, 1)
 
         self.orthogonal_diff_amplitude_x_spin = self._create_spinbox(0.01, 1_000_000.0, 20.0, " cm", 3, 1.0)
-        self.orthogonal_diff_phase_x_spin = self._create_spinbox(-1_000.0, 1_000.0, 0.0, " rad", 4, 0.1)
+        self.orthogonal_diff_phase_x_spin = self._create_compact_phase_input(0.0)
         self.orthogonal_diff_omega_x_spin = self._create_spinbox(0.001, 10_000.0, 3.0, " rad/s", 4, 0.1)
         self.orthogonal_diff_amplitude_y_spin = self._create_spinbox(0.01, 1_000_000.0, 12.0, " cm", 3, 1.0)
-        self.orthogonal_diff_phase_y_spin = self._create_spinbox(-1_000.0, 1_000.0, 1.1, " rad", 4, 0.1)
+        self.orthogonal_diff_phase_y_spin = self._create_compact_phase_input(1.1)
         self.orthogonal_diff_omega_y_spin = self._create_spinbox(0.001, 10_000.0, 4.0, " rad/s", 4, 0.1)
 
         rows = [
@@ -1255,10 +1356,13 @@ class VibrationLabTab(QWidget):
         button_row = QHBoxLayout()
         self.btn_toggle_animation = QPushButton("开始动画")
         self.btn_reset_animation = QPushButton("重置")
+        self.btn_record_micro_lesson = QPushButton("录制微课")
         self.btn_toggle_animation.clicked.connect(self.on_toggle_animation)
         self.btn_reset_animation.clicked.connect(self.on_reset_animation)
+        self.btn_record_micro_lesson.clicked.connect(self.on_record_micro_lesson)
         button_row.addWidget(self.btn_toggle_animation)
         button_row.addWidget(self.btn_reset_animation)
+        button_row.addWidget(self.btn_record_micro_lesson)
         layout.addLayout(button_row)
 
         self.live_status_label = QLabel("t = 0.000 s")
@@ -1270,15 +1374,40 @@ class VibrationLabTab(QWidget):
         return group
 
     def _create_spinbox(self, minimum, maximum, value, suffix, decimals, step):
-        spinbox = QDoubleSpinBox()
-        spinbox.setRange(minimum, maximum)
-        spinbox.setDecimals(decimals)
-        spinbox.setValue(value)
-        spinbox.setSingleStep(step)
-        spinbox.setSuffix(suffix)
+        spinbox = SliderSpinBox(
+            minimum=minimum,
+            maximum=maximum,
+            value=value,
+            step=step,
+            decimals=decimals,
+            suffix=suffix,
+        )
         spinbox.setMinimumHeight(36)
         spinbox.setKeyboardTracking(False)
         spinbox.setAccelerated(True)
+        return spinbox
+
+    def _create_phase_input(self, value=0.0):
+        phase_input = PhaseInputWidget(value=value)
+        phase_input.setMinimumHeight(36)
+        phase_input.setKeyboardTracking(False)
+        phase_input.setAccelerated(True)
+        return phase_input
+
+    def _create_compact_phase_input(self, value=0.0):
+        spinbox = QDoubleSpinBox()
+        spinbox.setRange(-np.pi, np.pi)
+        spinbox.setDecimals(4)
+        spinbox.setValue(value)
+        spinbox.setSingleStep(0.1)
+        spinbox.setSuffix(" rad")
+        spinbox.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
+        spinbox.setKeyboardTracking(False)
+        spinbox.setAccelerated(True)
+        spinbox.setAlignment(Qt.AlignmentFlag.AlignRight)
+        spinbox.setMinimumHeight(36)
+        spinbox.setMinimumWidth(120)
+        spinbox.setMaximumWidth(150)
         return spinbox
 
     def on_diff_case_changed(self, case_text):
@@ -2153,6 +2282,123 @@ class VibrationLabTab(QWidget):
         )
         self.result_text.setPlainText(text)
 
+    def _update_current_mode_live_widgets(self):
+        mode = self.mode_combo.currentText()
+        if mode == self.SINGLE_MODE:
+            self.update_single_live_widgets()
+        elif mode == self.COMPOUND_MODE:
+            self.update_compound_live_widgets()
+        elif mode == self.DIFF_FREQ_MODE:
+            self.update_diff_freq_live_widgets()
+        elif mode == self.ORTHOGONAL_MODE:
+            self.update_orthogonal_live_widgets()
+        else:
+            self.update_orthogonal_diff_live_widgets()
+
+    def _capture_record_frame(self):
+        try:
+            from PIL import Image
+        except ImportError as exc:
+            raise RuntimeError("缺少 Pillow 依赖，无法导出 GIF。") from exc
+
+        pixmap = self.record_widget.grab()
+        image = pixmap.toImage().convertToFormat(QImage.Format.Format_RGBA8888)
+        byte_array = QByteArray()
+        buffer = QBuffer(byte_array)
+        buffer.open(QIODevice.OpenModeFlag.WriteOnly)
+        image.save(buffer, "PNG")
+        buffer.close()
+        return Image.open(BytesIO(byte_array.data())).convert("RGBA")
+
+    def save_micro_lesson_gif(self, output_path, duration_seconds=None, fps=None):
+        duration_seconds = float(duration_seconds or self.micro_lesson_duration)
+        fps = int(fps or self.micro_lesson_fps)
+        if fps <= 0:
+            raise ValueError("GIF 帧率必须大于 0。")
+        if duration_seconds <= 0:
+            raise ValueError("录制时长必须大于 0。")
+
+        try:
+            from PIL import Image
+        except ImportError as exc:
+            raise RuntimeError("缺少 Pillow 依赖，无法导出 GIF。") from exc
+
+        output_path = Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        was_running = self.timer.isActive()
+        original_time = self.current_time
+        original_last_tick = self.last_tick
+        original_toggle_text = self.btn_toggle_animation.text()
+
+        if was_running:
+            self.timer.stop()
+        self.btn_toggle_animation.setText("开始动画")
+
+        frame_count = max(2, int(round(duration_seconds * fps)))
+        frame_step = duration_seconds / max(frame_count - 1, 1)
+        frames = []
+
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            for index in range(frame_count):
+                capture_time = original_time + index * frame_step
+                if self.duration > 0:
+                    capture_time %= self.duration
+                self.current_time = capture_time
+                self._update_current_mode_live_widgets()
+                QApplication.processEvents()
+                frames.append(self._capture_record_frame())
+
+            primary = frames[0]
+            append_images = frames[1:]
+            primary.save(
+                output_path,
+                save_all=True,
+                append_images=append_images,
+                duration=max(1, int(round(1000 / fps))),
+                loop=0,
+                disposal=2,
+            )
+        finally:
+            QApplication.restoreOverrideCursor()
+            self.current_time = original_time
+            self.last_tick = original_last_tick
+            self._update_current_mode_live_widgets()
+            self.btn_toggle_animation.setText(original_toggle_text if was_running else "开始动画")
+            if was_running:
+                self.last_tick = time.monotonic()
+                self.timer.start()
+
+        return output_path
+
+    def on_record_micro_lesson(self):
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        default_name = f"vibration_micro_lesson_{timestamp}.gif"
+        output_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "保存微课 GIF",
+            str(Path.home() / default_name),
+            "GIF 动图 (*.gif)",
+        )
+        if not output_path:
+            return
+
+        self.btn_record_micro_lesson.setEnabled(False)
+        self.live_status_label.setText(
+            f"正在录制微课 GIF（{self.micro_lesson_duration:.0f} s，{self.micro_lesson_fps} fps）..."
+        )
+        QApplication.processEvents()
+        try:
+            saved_path = self.save_micro_lesson_gif(output_path)
+        except Exception as exc:
+            self._update_current_mode_live_widgets()
+            QMessageBox.warning(self, "录制失败", f"微课 GIF 导出失败：\n{exc}")
+        else:
+            QMessageBox.information(self, "录制完成", f"微课 GIF 已保存到：\n{saved_path}")
+        finally:
+            self.btn_record_micro_lesson.setEnabled(True)
+
     def on_toggle_animation(self):
         if self.timer.isActive():
             self.timer.stop()
@@ -2184,14 +2430,4 @@ class VibrationLabTab(QWidget):
         if self.duration > 0:
             self.current_time %= self.duration
 
-        mode = self.mode_combo.currentText()
-        if mode == self.SINGLE_MODE:
-            self.update_single_live_widgets()
-        elif mode == self.COMPOUND_MODE:
-            self.update_compound_live_widgets()
-        elif mode == self.DIFF_FREQ_MODE:
-            self.update_diff_freq_live_widgets()
-        elif mode == self.ORTHOGONAL_MODE:
-            self.update_orthogonal_live_widgets()
-        else:
-            self.update_orthogonal_diff_live_widgets()
+        self._update_current_mode_live_widgets()

@@ -57,12 +57,68 @@ def extract_line_intensity(
     
     return distances, intensities
 
+def _adaptive_smoothing_window(signal_length: int) -> int:
+    """Return an odd Savitzky-Golay window suitable for image line profiles."""
+    if signal_length < 5:
+        return 0
+
+    window = int(round(signal_length * 0.004))
+    window = max(5, min(window, 9, signal_length))
+    if window % 2 == 0:
+        window -= 1
+    return window if window >= 5 else 0
+
+
+def _merge_peaks_without_clear_valley(
+    signal: np.ndarray,
+    peaks: np.ndarray,
+    min_valley_drop: float
+) -> np.ndarray:
+    """Merge local maxima that do not have a clear dark valley between them."""
+    if len(peaks) <= 1:
+        return peaks
+
+    merged = []
+    i = 0
+    while i < len(peaks):
+        cluster = [int(peaks[i])]
+        j = i + 1
+
+        while j < len(peaks):
+            left = cluster[-1]
+            right = int(peaks[j])
+            if right <= left:
+                j += 1
+                continue
+
+            between = signal[left:right + 1]
+            valley = float(np.min(between))
+            lower_peak = float(min(signal[left], signal[right]))
+            if lower_peak - valley < min_valley_drop:
+                cluster.append(right)
+                j += 1
+            else:
+                break
+
+        heights = signal[cluster]
+        max_height = float(np.max(heights))
+        near_top = [
+            p for p in cluster
+            if max_height - float(signal[p]) <= max(min_valley_drop * 0.25, 1.0)
+        ]
+        center = float(np.mean(cluster))
+        merged.append(min(near_top, key=lambda p: abs(p - center)))
+        i = j
+
+    return np.asarray(merged, dtype=int)
+
 
 def detect_peaks(
     intensities: np.ndarray,
     min_height: Optional[float] = None,
-    min_distance: int = 5,
-    prominence: Optional[float] = None
+    min_distance: Optional[int] = None,
+    prominence: Optional[float] = None,
+    merge_shallow_valleys: bool = True
 ) -> Tuple[np.ndarray, dict]:
     """
     使用 scipy.signal.find_peaks 检测波峰（亮条纹）
@@ -77,13 +133,35 @@ def detect_peaks(
         peaks: 波峰位置的索引数组
         properties: 波峰属性字典
     """
+    intensities = np.asarray(intensities, dtype=float)
+    if intensities.size < 3:
+        return np.array([], dtype=int), {}
+
+    finite_mask = np.isfinite(intensities)
+    if not np.any(finite_mask):
+        return np.array([], dtype=int), {}
+
+    if not np.all(finite_mask):
+        intensities = np.interp(
+            np.arange(len(intensities)),
+            np.flatnonzero(finite_mask),
+            intensities[finite_mask],
+        )
+
+    signal_min = float(np.percentile(intensities, 5))
+    signal_max = float(np.percentile(intensities, 95))
+    signal_range = max(signal_max - signal_min, 1.0)
+
     # 如果没有指定最小高度，使用平均值作为阈值
     if min_height is None:
-        min_height = np.mean(intensities)
+        min_height = float(np.mean(intensities))
     
     # 如果没有指定突出度，使用标准差的 0.5 倍
     if prominence is None:
-        prominence = np.std(intensities) * 0.5
+        prominence = max(float(np.std(intensities)) * 0.18, signal_range * 0.035, 0.8)
+
+    if min_distance is None:
+        min_distance = max(2, int(round(len(intensities) * 0.003)))
     
     # 检测波峰
     peaks, properties = find_peaks(
@@ -92,6 +170,22 @@ def detect_peaks(
         distance=min_distance,
         prominence=prominence
     )
+
+    if merge_shallow_valleys and len(peaks) > 1:
+        valley_drops = []
+        for left, right in zip(peaks[:-1], peaks[1:]):
+            between = intensities[int(left):int(right) + 1]
+            lower_peak = min(float(intensities[int(left)]), float(intensities[int(right)]))
+            valley_drops.append(lower_peak - float(np.min(between)))
+
+        typical_valley_drop = float(np.median(valley_drops)) if valley_drops else 0.0
+        min_valley_drop = max(
+            signal_range * 0.12,
+            typical_valley_drop * 0.65,
+            float(np.std(intensities)) * 0.35,
+            2.0,
+        )
+        peaks = _merge_peaks_without_clear_valley(intensities, peaks, min_valley_drop)
     
     return peaks, properties
 
@@ -124,13 +218,23 @@ def analyze_interference_pattern(
         return {
             'distances': np.array([]),
             'intensities': np.array([]),
+            'analysis_intensities': np.array([]),
             'peaks': np.array([]),
             'peak_count': 0,
             'avg_spacing': 0.0
         }
     
+    analysis_intensities = intensities.astype(float)
+    smoothing_window = _adaptive_smoothing_window(len(analysis_intensities))
+    if smoothing_window > 0:
+        analysis_intensities = smooth_signal(
+            analysis_intensities,
+            window_length=smoothing_window,
+            polyorder=2,
+        )
+
     # 检测波峰
-    peaks, properties = detect_peaks(intensities)
+    peaks, properties = detect_peaks(analysis_intensities)
     
     # 计算波峰数量
     peak_count = len(peaks)
@@ -145,6 +249,7 @@ def analyze_interference_pattern(
     return {
         'distances': distances,
         'intensities': intensities,
+        'analysis_intensities': analysis_intensities,
         'peaks': peaks,
         'peak_count': peak_count,
         'avg_spacing': avg_spacing,

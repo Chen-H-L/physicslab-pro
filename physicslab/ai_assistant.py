@@ -1,4 +1,5 @@
 import re
+from html import escape
 from urllib.parse import urlparse
 
 from PyQt6.QtCore import Qt
@@ -18,7 +19,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from .config import get_settings_file_path, load_ai_settings, save_ai_settings
+from .config import load_ai_settings, save_ai_settings
 from .workers import LLMWorker
 
 
@@ -64,11 +65,6 @@ class AISettingsDialog(QDialog):
         form_layout.addRow("模型名称", self.model_input)
 
         layout.addLayout(form_layout)
-
-        path_label = QLabel(f"配置保存位置：{get_settings_file_path()}")
-        path_label.setWordWrap(True)
-        path_label.setStyleSheet("color: #94a3b8; font-size: 11px;")
-        layout.addWidget(path_label)
 
         button_box = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
@@ -151,10 +147,10 @@ class AIAssistantDock(QDockWidget):
         self.chat_display.setStyleSheet(
             """
             QTextBrowser {
-                background-color: #ffffff;
-                color: #333333;
+                background-color: #f8fafc;
+                color: #1f2937;
                 border: none;
-                padding: 20px;
+                padding: 18px;
                 font-size: 14px;
                 line-height: 1.6;
                 font-family: 'Segoe UI', 'Microsoft YaHei', Arial, sans-serif;
@@ -164,7 +160,7 @@ class AIAssistantDock(QDockWidget):
         self.chat_display.setHtml(
             """
             <html>
-            <body style="margin: 0; padding: 0;">
+            <body style="margin: 0; padding: 0; background-color: #f8fafc;">
                 <div style="text-align: center; padding: 40px 20px; color: #666;">
                     <h2 style="margin-bottom: 10px; color: #333;">新对话</h2>
                     <p>欢迎使用 AI 虚拟助教</p>
@@ -406,21 +402,27 @@ class AIAssistantDock(QDockWidget):
 
         if is_user:
             message_html = f"""
-<div style="display: flex; justify-content: flex-end; margin: 10px 0;">
-    <div style="max-width: 75%; background-color: #e3f2fd; border-radius: 18px 18px 4px 18px; padding: 12px 16px; box-shadow: 0 1px 2px rgba(0,0,0,0.1);">
-        <div style="color: #1976d2; font-weight: 500; margin-bottom: 4px;">👤 {role}</div>
-        <div style="color: #333333; white-space: pre-wrap; word-wrap: break-word; line-height: 1.6;">{processed_message}</div>
-    </div>
-</div>
+<table width="100%" cellspacing="0" cellpadding="0" style="margin: 12px 0;">
+    <tr>
+        <td align="right">
+            <table width="78%" cellspacing="0" cellpadding="0" style="background-color: #eaf4ff; border: 1px solid #cfe3fb;">
+                <tr><td style="padding: 10px 14px;">
+                    <p style="margin: 0 0 4px 0; color: #1d4ed8; font-weight: 600; font-size: 12px;">{escape(role)}</p>
+                    <div style="color: #1f2937; line-height: 1.65;">{processed_message}</div>
+                </td></tr>
+            </table>
+        </td>
+    </tr>
+</table>
 """
         else:
             message_html = f"""
-<div style="display: flex; margin: 10px 0;">
-    <div style="max-width: 75%; background-color: #ffffff; border: 1px solid #e9ecef; border-radius: 4px 18px 18px 4px; padding: 12px 16px; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
-        <div style="color: #1976d2; font-weight: 500; margin-bottom: 4px;">🤖 {role}</div>
-        <div style="color: #333333; white-space: pre-wrap; word-wrap: break-word; line-height: 1.6;">{processed_message}</div>
-    </div>
-</div>
+<table width="100%" cellspacing="0" cellpadding="0" style="margin: 14px 0; background-color: #ffffff; border: 1px solid #e2e8f0;">
+    <tr><td style="padding: 14px 16px;">
+        <p style="margin: 0 0 10px 0; padding-bottom: 8px; color: #0f172a; font-weight: 600; font-size: 13px; border-bottom: 1px solid #eef2f7;">{escape(role)}</p>
+        <div style="color: #1f2937; line-height: 1.7;">{processed_message}</div>
+    </td></tr>
+</table>
 """
 
         new_html = current_html.replace("</body></html>", "") + message_html + "</body></html>"
@@ -429,111 +431,326 @@ class AIAssistantDock(QDockWidget):
         scroll_bar = self.chat_display.verticalScrollBar()
         scroll_bar.setValue(scroll_bar.maximum())
 
-    def process_message(self, message: str) -> str:
-        """处理消息内容，改善公式显示。"""
+    def _extract_brace_group(self, text: str, start: int):
+        if start >= len(text) or text[start] != "{":
+            return None
+
+        depth = 0
+        for index in range(start, len(text)):
+            char = text[index]
+            if char == "{":
+                depth += 1
+            elif char == "}":
+                depth -= 1
+                if depth == 0:
+                    return text[start + 1:index], index + 1
+        return None
+
+    def _replace_group_command(self, text: str, command: str, group_count: int, formatter) -> str:
+        cursor = 0
+        output = []
+        while True:
+            index = text.find(command, cursor)
+            if index < 0:
+                output.append(text[cursor:])
+                break
+
+            output.append(text[cursor:index])
+            pos = index + len(command)
+            groups = []
+            ok = True
+            for _ in range(group_count):
+                while pos < len(text) and text[pos].isspace():
+                    pos += 1
+                group = self._extract_brace_group(text, pos)
+                if group is None:
+                    ok = False
+                    break
+                groups.append(group[0])
+                pos = group[1]
+
+            if ok:
+                output.append(formatter(*groups))
+                cursor = pos
+            else:
+                output.append(command)
+                cursor = index + len(command)
+
+        return "".join(output)
+
+    def _apply_scripts(self, text: str) -> str:
+        superscript_map = str.maketrans({
+            "0": "⁰", "1": "¹", "2": "²", "3": "³", "4": "⁴",
+            "5": "⁵", "6": "⁶", "7": "⁷", "8": "⁸", "9": "⁹",
+            "+": "⁺", "-": "⁻", "=": "⁼", "(": "⁽", ")": "⁾",
+            "n": "ⁿ", "i": "ⁱ",
+        })
+        subscript_map = str.maketrans({
+            "0": "₀", "1": "₁", "2": "₂", "3": "₃", "4": "₄",
+            "5": "₅", "6": "₆", "7": "₇", "8": "₈", "9": "₉",
+            "+": "₊", "-": "₋", "=": "₌", "(": "₍", ")": "₎",
+            "a": "ₐ", "e": "ₑ", "h": "ₕ", "i": "ᵢ", "j": "ⱼ",
+            "k": "ₖ", "l": "ₗ", "m": "ₘ", "n": "ₙ", "o": "ₒ",
+            "p": "ₚ", "r": "ᵣ", "s": "ₛ", "t": "ₜ", "u": "ᵤ",
+            "v": "ᵥ", "x": "ₓ",
+        })
+
+        def convert(content: str, table, marker: str) -> str:
+            cleaned = content.replace(" ", "")
+            converted = cleaned.translate(table)
+            if all(char != original for char, original in zip(converted, cleaned)) or converted != cleaned:
+                return converted
+            return f"{marker}({content})"
+
+        text = re.sub(r"\^\{([^{}]+)\}", lambda m: convert(m.group(1), superscript_map, "^"), text)
+        text = re.sub(r"_\{([^{}]+)\}", lambda m: convert(m.group(1), subscript_map, "_"), text)
+        text = re.sub(r"\^([A-Za-z0-9+\-=()])", lambda m: convert(m.group(1), superscript_map, "^"), text)
+        text = re.sub(r"_([A-Za-z0-9+\-=()])", lambda m: convert(m.group(1), subscript_map, "_"), text)
+        return text
+
+    def _latex_to_readable(self, formula: str) -> str:
+        formula = formula.strip()
+        formula = formula.replace("\\left", "").replace("\\right", "")
+        formula = formula.replace("\\,", " ").replace("\\;", " ").replace("\\!", "")
+        formula = formula.replace("\\quad", " ").replace("\\qquad", " ")
+
+        formula = self._replace_group_command(
+            formula,
+            "\\frac",
+            2,
+            lambda numerator, denominator: (
+                f"({self._latex_to_readable(numerator)})/({self._latex_to_readable(denominator)})"
+            ),
+        )
+        formula = self._replace_group_command(
+            formula,
+            "\\sqrt",
+            1,
+            lambda value: f"√({self._latex_to_readable(value)})",
+        )
+        formula = self._replace_group_command(
+            formula,
+            "\\mathrm",
+            1,
+            lambda value: self._latex_to_readable(value),
+        )
+        formula = self._replace_group_command(
+            formula,
+            "\\text",
+            1,
+            lambda value: value,
+        )
+        formula = self._replace_group_command(
+            formula,
+            "\\hat",
+            1,
+            lambda value: f"{self._latex_to_readable(value)}̂",
+        )
+        formula = self._replace_group_command(
+            formula,
+            "\\bar",
+            1,
+            lambda value: f"{self._latex_to_readable(value)}̄",
+        )
+        formula = re.sub(
+            r"√\s*\{([^{}]+)\}",
+            lambda match: f"√({self._latex_to_readable(match.group(1))})",
+            formula,
+        )
+
+        for function_name in ("sin", "cos", "tan", "exp", "ln", "log"):
+            formula = re.sub(rf"\\{function_name}\b", f" {function_name}", formula)
+
         replacements = {
             "\\lambda": "λ",
             "\\theta": "θ",
-            "\\sin": "sin",
-            "\\cos": "cos",
-            "\\tan": "tan",
             "\\pi": "π",
-            "\\cdot": "·",
-            "\\times": "×",
-            "\\div": "÷",
-            "\\pm": "±",
-            "\\infty": "∞",
-            "\\sqrt": "√",
-            "\\frac": "/",
-            "\\sum": "∑",
-            "\\int": "∫",
-            "\\partial": "∂",
-            "\\nabla": "∇",
-            "\\ldots": "...",
-            "\\dots": "...",
-            "\\cdots": "...",
-            "\\approx": "≈",
-            "\\equiv": "≡",
-            "\\neq": "≠",
-            "\\leq": "≤",
-            "\\geq": "≥",
-            "\\lt": "<",
-            "\\gt": ">",
-            "\\quad": " ",
             "\\Delta": "Δ",
             "\\alpha": "α",
             "\\beta": "β",
             "\\gamma": "γ",
             "\\delta": "δ",
             "\\epsilon": "ε",
+            "\\varepsilon": "ε",
             "\\phi": "φ",
+            "\\varphi": "φ",
             "\\psi": "ψ",
             "\\omega": "ω",
+            "\\Omega": "Ω",
+            "\\mu": "μ",
+            "\\rho": "ρ",
+            "\\sigma": "σ",
+            "\\sin": "sin",
+            "\\cos": "cos",
+            "\\tan": "tan",
+            "\\exp": "exp",
+            "\\ln": "ln",
+            "\\log": "log",
+            "\\cdot": "·",
+            "\\times": "×",
+            "\\div": "÷",
+            "\\pm": "±",
+            "\\infty": "∞",
+            "\\sum": "∑",
+            "\\int": "∫",
+            "\\partial": "∂",
+            "\\nabla": "∇",
+            "\\propto": "∝",
+            "\\approx": "≈",
+            "\\equiv": "≡",
+            "\\neq": "≠",
+            "\\leq": "≤",
+            "\\le": "≤",
+            "\\geq": "≥",
+            "\\ge": "≥",
+            "\\lt": "<",
+            "\\gt": ">",
+            "\\rightarrow": "→",
+            "\\to": "→",
+            "\\Rightarrow": "⇒",
+            "\\ldots": "...",
+            "\\dots": "...",
+            "\\cdots": "...",
         }
         for latex, symbol in replacements.items():
-            message = message.replace(latex, symbol)
+            formula = formula.replace(latex, symbol)
 
-        message = re.sub(
-            r"\$(.*?)\$",
-            r'<span style="font-family: Cambria Math, Times New Roman, serif; font-style: italic;">\1</span>',
-            message,
+        formula = self._apply_scripts(formula)
+        formula = formula.replace("{", "").replace("}", "")
+        formula = re.sub(r"\s+", " ", formula).strip()
+        return formula
+
+    def _formula_html(self, formula: str, block: bool = False) -> str:
+        readable = escape(self._latex_to_readable(formula))
+        if block:
+            return (
+                "<div style='margin: 12px 0; padding: 12px 14px; "
+                "background-color: #f1f7ff; border: 1px solid #dbeafe; "
+                "border-radius: 8px; text-align: center; "
+                "font-family: Cambria Math, STIX Two Math, Times New Roman, serif; "
+                "font-size: 16px; color: #0f172a; line-height: 1.8;'>"
+                f"{readable}</div>"
+            )
+        return (
+            "<span style='font-family: Cambria Math, STIX Two Math, Times New Roman, serif; "
+            "font-size: 15px; color: #0f172a; background-color: #f8fafc; padding: 0 3px; border-radius: 3px;'>"
+            f"{readable}</span>"
         )
-        message = re.sub(r"\*\*(.*?)\*\*", r"<strong>\1</strong>", message)
-        message = re.sub(r"\*+", "", message)
 
+    def _clean_markdown_noise(self, text: str) -> str:
+        text = text.strip()
+        text = re.sub(r"^\s*[-*•]\s*", "", text)
+        text = re.sub(r"^\s*\*+", "", text)
+        text = re.sub(r"\*+\s*$", "", text)
+        text = re.sub(r"\s+", " ", text)
+        return text.strip()
+
+    def _format_inline_text(self, text: str) -> str:
+        formulas = []
+        text = self._clean_markdown_noise(text)
+
+        def stash_formula(match):
+            formulas.append(self._formula_html(match.group(1), block=False))
+            return f"@@FORMULA{len(formulas) - 1}@@"
+
+        text = re.sub(r"\\\((.+?)\\\)", stash_formula, text)
+        text = re.sub(r"(?<!\$)\$(?!\$)(.+?)(?<!\$)\$(?!\$)", stash_formula, text)
+        if "\\" in text or re.search(r"[A-Za-zα-ωΑ-Ω][_^][{A-Za-z0-9]", text):
+            text = self._latex_to_readable(text)
+        text = escape(text)
+        text = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", text)
+        text = re.sub(r"`(.+?)`", r"<code style='background:#f3f4f6; padding:1px 4px; border-radius:4px;'>\1</code>", text)
+        text = text.replace("**", "").replace("*", "")
+
+        for index, formula_html in enumerate(formulas):
+            text = text.replace(f"@@FORMULA{index}@@", formula_html)
+        return text
+
+    def _looks_like_formula(self, line: str) -> bool:
+        if "$" in line or "\\(" in line or "\\)" in line:
+            return False
+        if re.search(r"[\u4e00-\u9fff]", line):
+            return False
+        if any(token in line for token in ("\\frac", "\\sqrt", "\\lambda", "\\Delta", "\\propto", "\\approx")):
+            return True
+        if re.search(r"[A-Za-zα-ωΑ-Ω][_^][{A-Za-z0-9]", line):
+            return True
+        return "=" in line and any(token in line for token in ("√", "^", "_", "/", "λ", "Δ", "π", "∝", "≈"))
+
+    def process_message(self, message: str) -> str:
+        """处理消息内容，改善公式显示。"""
+        message = message.replace("\r\n", "\n").replace("\r", "\n")
         lines = message.split("\n")
         processed_lines = []
         in_equation = False
         equation_lines = []
 
-        formula_symbols = ["λ", "θ", "π", "Δ", "α", "β", "γ", "δ", "ε", "φ", "ψ", "ω", "sin", "cos", "tan"]
+        for raw_line in lines:
+            line = raw_line.strip()
 
-        for line in lines:
-            line = line.strip()
-            if line.startswith("$$") and line.endswith("$$"):
-                eq_content = line.strip("$$").strip()
-                processed_lines.append(
-                    f"<div style='margin: 12px 0; padding: 10px; background-color: #f8f9fa; border-radius: 6px; text-align: center; font-family: Cambria Math, Times New Roman, serif;'>{eq_content}</div>"
-                )
-            elif line.startswith("$$"):
+            if not line:
+                continue
+
+            if line.startswith("$$") and line.endswith("$$") and len(line) > 4:
+                processed_lines.append(self._formula_html(line[2:-2].strip(), block=True))
+                continue
+            if line.startswith("\\[") and line.endswith("\\]"):
+                processed_lines.append(self._formula_html(line[2:-2].strip(), block=True))
+                continue
+            if line.startswith("$$") or line.startswith("\\["):
                 in_equation = True
-                equation_lines = []
-            elif line.endswith("$$"):
+                equation_lines = [line.lstrip("$").lstrip("\\[").strip()]
+                continue
+            if line.endswith("$$") or line.endswith("\\]"):
+                equation_lines.append(line.rstrip("$").rstrip("\\]").strip())
+                processed_lines.append(self._formula_html(" ".join(equation_lines), block=True))
                 in_equation = False
-                eq_content = " ".join(equation_lines).strip()
-                processed_lines.append(
-                    f"<div style='margin: 12px 0; padding: 12px; background-color: #f8f9fa; border-radius: 6px; text-align: center; font-family: Cambria Math, Times New Roman, serif; font-size: 15px;'>{eq_content}</div>"
-                )
-            elif in_equation:
+                equation_lines = []
+                continue
+            if in_equation:
                 equation_lines.append(line)
-            elif line:
-                if line.startswith("#"):
-                    level = line.count("#")
-                    text = line.lstrip("#").strip()
-                    if level == 1:
-                        processed_lines.append(f"<h3 style='margin: 20px 0 12px 0; color: #333; font-weight: 600;'>{text}</h3>")
-                    elif level == 2:
-                        processed_lines.append(f"<h4 style='margin: 16px 0 10px 0; color: #333; font-weight: 600;'>{text}</h4>")
-                    else:
-                        processed_lines.append(f"<h5 style='margin: 14px 0 8px 0; color: #333; font-weight: 600;'>{text}</h5>")
-                elif line.startswith("-") or line.startswith("*"):
-                    clean_line = line.lstrip("-* ").strip()
-                    if any(sym in clean_line for sym in formula_symbols):
-                        processed_lines.append(
-                            f"<div style='margin-left: 20px; margin-bottom: 8px; padding: 8px; background-color: #f8f9fa; border-radius: 4px;'>• {clean_line}</div>"
-                        )
-                    else:
-                        processed_lines.append(f"<div style='margin-left: 20px; margin-bottom: 5px;'>• {clean_line}</div>")
-                elif line.startswith("> "):
-                    processed_lines.append(
-                        f"<div style='margin: 10px 0; padding: 12px; background-color: #f0f7ff; border-left: 4px solid #1976d2; border-radius: 0 6px 6px 0;'>{line.lstrip('> ').strip()}</div>"
-                    )
-                elif any(sym in line for sym in formula_symbols + ["=", "<", ">", "±"]):
-                    processed_lines.append(
-                        f"<div style='margin: 8px 0; padding: 8px; background-color: #fafafa; border-radius: 4px; font-family: Cambria Math, Times New Roman, serif;'>{line}</div>"
-                    )
-                else:
-                    processed_lines.append(f"<p style='margin: 8px 0; line-height: 1.6;'>{line}</p>")
+                continue
+
+            list_candidate = re.sub(r"^\s*[-*•]\s*", "", line).strip()
+            list_candidate = re.sub(r"^\*+|\*+$", "", list_candidate).strip()
+            numbered_match = re.match(r"^(\d+)[\.、]\s*(.+)$", list_candidate)
+
+            if line.startswith("#"):
+                level = min(line.count("#"), 3)
+                text = self._format_inline_text(line.lstrip("#").strip())
+                tag = "h3" if level == 1 else "h4" if level == 2 else "h5"
+                margin = "18px 0 10px 0" if level == 1 else "14px 0 8px 0"
+                processed_lines.append(
+                    f"<{tag} style='margin: {margin}; color: #1f2937; font-weight: 600;'>{text}</{tag}>"
+                )
+            elif numbered_match:
+                number, item_text = numbered_match.groups()
+                processed_lines.append(
+                    "<p style='margin: 8px 0; line-height: 1.65;'>"
+                    f"<span style='color: #1d4ed8; font-weight: 600;'>{escape(number)}.</span> "
+                    f"{self._format_inline_text(item_text)}</p>"
+                )
+            elif line.startswith("-") or line.startswith("*") or line.startswith("•"):
+                clean_line = line.lstrip("-*• ").strip()
+                processed_lines.append(
+                    "<p style='margin: 6px 0 6px 14px; line-height: 1.65;'>"
+                    f"{self._format_inline_text(clean_line)}</p>"
+                )
+            elif line.startswith("> "):
+                processed_lines.append(
+                    "<div style='margin: 10px 0; padding: 10px 12px; background-color: #f0f7ff; "
+                    "border-left: 4px solid #1976d2; border-radius: 0 6px 6px 0;'>"
+                    f"{self._format_inline_text(line.lstrip('> ').strip())}</div>"
+                )
+            elif self._looks_like_formula(line):
+                processed_lines.append(self._formula_html(line, block=True))
+            else:
+                processed_lines.append(
+                    f"<p style='margin: 8px 0; line-height: 1.65;'>{self._format_inline_text(line)}</p>"
+                )
+
+        if in_equation and equation_lines:
+            processed_lines.append(self._formula_html(" ".join(equation_lines), block=True))
 
         return "".join(processed_lines)
 

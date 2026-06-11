@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+FIXED_VIEW_RANGE_MM = 3.5
 
 class LegacyOpenGLSimulationWidget(QOpenGLWidget):
     """OpenGL 仿真显示组件"""
@@ -379,7 +380,7 @@ class SimulationWidget(QWidget):
 
         self.experiment_type = 0
         self.wavelength = 632.8
-        self.scale = 5.0
+        self.scale = FIXED_VIEW_RANGE_MM
         self.radius = 1000.0
         self.gap_distance = 0.0
         self.angle = 0.001
@@ -543,7 +544,7 @@ class SimulationModelWidget(QWidget):
 
         self.experiment_type = 0
         self.wavelength = 632.8
-        self.scale = 5.0
+        self.scale = FIXED_VIEW_RANGE_MM
         self.radius = 1000.0
         self.gap_distance = 0.0
         self.angle = 0.001
@@ -711,7 +712,7 @@ class SimulationModelWidget(QWidget):
         painter.setPen(QColor('#1f2733'))
         painter.drawText(QPointF(axis_x - 10, plate_top + 18), "O")
 
-        parameter_rect = QRectF(rect.right() - 156, rect.top() + 4, 146, 88)
+        parameter_rect = QRectF(rect.right() - 156, rect.top() + 4, 146, 70)
         self._draw_parameter_panel(
             painter,
             parameter_rect,
@@ -719,7 +720,6 @@ class SimulationModelWidget(QWidget):
                 ("λ", f"{self.wavelength:.1f} nm"),
                 ("R", f"{self.radius:.1f} mm"),
                 ("d", f"{self.gap_distance:.1f} nm"),
-                ("L", f"{self.scale:.2f} mm"),
             ],
         )
 
@@ -771,12 +771,12 @@ class SimulationModelWidget(QWidget):
         painter.setPen(QColor('#34495e'))
         painter.drawText(QPointF(rect.left() + 22, rect.top() + 14), "入射光")
 
-        marker_x = right_x - (right_x - left_x) * 0.18
+        marker_x = left_x + (right_x - left_x) * 0.28
         marker_y = thin_y + (thick_y - thin_y) * ((marker_x - left_x) / max(right_x - left_x, 1.0))
         self._draw_arrow(
             painter,
-            QPointF(marker_x + 20, marker_y),
-            QPointF(marker_x + 20, base_y),
+            QPointF(marker_x, marker_y),
+            QPointF(marker_x, base_y),
             QColor('#50657b'),
             width=1.6,
             head_size=5.5,
@@ -784,7 +784,7 @@ class SimulationModelWidget(QWidget):
         )
         painter.setFont(label_font)
         painter.setPen(QColor('#1f2733'))
-        painter.drawText(QPointF(marker_x + 26, (marker_y + base_y) / 2.0 + 4), "d")
+        painter.drawText(QPointF(marker_x + 8, (marker_y + base_y) / 2.0 + 4), "d")
 
         alpha_rect = QRectF(left_x + 14, thin_y - 4, 40, 30)
         painter.setPen(QPen(QColor('#51657c'), 1.5))
@@ -802,12 +802,11 @@ class SimulationModelWidget(QWidget):
 
         self._draw_parameter_panel(
             painter,
-            QRectF(rect.right() - panel_width, rect.top() + 4, panel_width, 88),
+            QRectF(rect.right() - panel_width, rect.top() + 4, panel_width, 70),
             [
                 ("λ", f"{self.wavelength:.1f} nm"),
                 ("α", f"{math.degrees(self.angle):.3f}°"),
                 ("d", f"{self.gap_distance:.1f} nm"),
-                ("L", f"{self.scale:.2f} mm"),
             ],
         )
 

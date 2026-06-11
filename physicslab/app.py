@@ -5,13 +5,17 @@ from PyQt6.QtWidgets import QApplication, QMainWindow, QMessageBox, QTabWidget
 
 from .ai_assistant import AIAssistantDock
 from .data_workstation import DataWorkstationTab
+from .extensions_tab import ExtensionsTab
 from .optics_tab import OpticsPatternAnalysisTab, OpticsSimulationTab
 from .thermodynamics_tab import ThermodynamicsLabTab
 from .vibration_tab import VibrationLabTab
 
+APP_NAME_SHORT = "物演智启"
+APP_NAME_FULL = "物演智启：科学实验仿真辅助工具"
+
 
 class MainWindow(QMainWindow):
-    """主窗口类。"""
+    """主窗口。"""
 
     def __init__(self):
         super().__init__()
@@ -19,7 +23,7 @@ class MainWindow(QMainWindow):
 
     def init_ui(self):
         """初始化主窗口界面。"""
-        self.setWindowTitle("PhysicsLab Pro - 物理实验辅助工具")
+        self.setWindowTitle(APP_NAME_FULL)
         self.setGeometry(100, 100, 1400, 900)
 
         self.tab_widget = QTabWidget()
@@ -29,6 +33,7 @@ class MainWindow(QMainWindow):
         self.data_tab = DataWorkstationTab()
         self.thermodynamics_tab = ThermodynamicsLabTab()
         self.vibration_tab = VibrationLabTab()
+        self.extensions_tab = ExtensionsTab()
         self.optics_tab = self.optics_pattern_tab
 
         self.tab_widget.addTab(self.optics_simulation_tab, "光学虚拟仿真实验")
@@ -36,6 +41,8 @@ class MainWindow(QMainWindow):
         self.tab_widget.addTab(self.thermodynamics_tab, "热力学模拟仿真实验")
         self.tab_widget.addTab(self.vibration_tab, "振动学实验室")
         self.tab_widget.addTab(self.data_tab, "数据工作台")
+
+        self.tab_widget.addTab(self.extensions_tab, "扩展内容")
 
         self.setCentralWidget(self.tab_widget)
 
@@ -76,7 +83,7 @@ class MainWindow(QMainWindow):
 
         help_menu.addSeparator()
 
-        about_action = help_menu.addAction("关于 PhysicsLab Pro")
+        about_action = help_menu.addAction(f"关于 {APP_NAME_SHORT}")
         about_action.triggered.connect(self.show_about)
 
         self.setStyleSheet(
@@ -214,9 +221,9 @@ class MainWindow(QMainWindow):
 
     def show_about(self):
         """显示关于对话框。"""
-        about_text = """
-<h3>PhysicsLab Pro v1.0</h3>
-<p>物理实验辅助工具</p>
+        about_text = f"""
+<h3>{APP_NAME_SHORT}</h3>
+<p>科学实验仿真辅助工具</p>
 <hr>
 <p><b>功能模块：</b></p>
 <ul>
@@ -237,10 +244,10 @@ class MainWindow(QMainWindow):
     <li>AI: DeepSeek API</li>
 </ul>
 <hr>
-<p>© 2024 PhysicsLab Pro. All rights reserved.</p>
+<p>© 2024 {APP_NAME_SHORT}. All rights reserved.</p>
 """
 
-        QMessageBox.about(self, "关于 PhysicsLab Pro", about_text)
+        QMessageBox.about(self, f"关于 {APP_NAME_SHORT}", about_text)
 
 
 def main():

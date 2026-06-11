@@ -1,10 +1,12 @@
 import cv2
 import numpy as np
+from pathlib import Path
+import tempfile
+
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont, QImage, QPixmap
 from PyQt6.QtWidgets import (
     QComboBox,
-    QDoubleSpinBox,
     QFileDialog,
     QFrame,
     QGroupBox,
@@ -27,8 +29,8 @@ from algorithms import (
     smooth_signal,
 )
 
-from .simulation import SimulationModelWidget, SimulationWidget
-from .widgets import ClickableImageLabel, MatplotlibCanvas
+from .simulation import FIXED_VIEW_RANGE_MM, SimulationModelWidget, SimulationWidget
+from .widgets import ClickableImageLabel, MatplotlibCanvas, SliderSpinBox
 from .workers import VideoWorker
 
 EXPERIMENT_IMAGE = "分析图片"
@@ -107,6 +109,10 @@ class OpticsLabTab(QWidget):
         self.btn_load_image = QPushButton("加载图片")
         self.btn_load_image.clicked.connect(self.on_load_image)
         image_control_layout.addWidget(self.btn_load_image)
+
+        self.btn_load_image_sample = QPushButton("加载样例")
+        self.btn_load_image_sample.clicked.connect(self.on_load_image_sample)
+        image_control_layout.addWidget(self.btn_load_image_sample)
         
         self.btn_start_analysis = QPushButton("开始分析")
         self.btn_start_analysis.clicked.connect(self.on_start_analysis)
@@ -126,6 +132,10 @@ class OpticsLabTab(QWidget):
         self.btn_load_video = QPushButton("加载视频")
         self.btn_load_video.clicked.connect(self.on_load_video)
         video_control_layout.addWidget(self.btn_load_video)
+
+        self.btn_load_video_sample = QPushButton("加载样例")
+        self.btn_load_video_sample.clicked.connect(self.on_load_video_sample)
+        video_control_layout.addWidget(self.btn_load_video_sample)
         
         self.btn_start_stop = QPushButton("开始/停止")
         self.btn_start_stop.clicked.connect(self.on_start_stop)
@@ -158,12 +168,7 @@ class OpticsLabTab(QWidget):
         wavelength_label.setMinimumWidth(100)
         wavelength_layout.addWidget(wavelength_label)
         
-        self.wavelength_spinbox = QDoubleSpinBox()
-        self.wavelength_spinbox.setMinimum(400.0)
-        self.wavelength_spinbox.setMaximum(700.0)
-        self.wavelength_spinbox.setValue(632.8)
-        self.wavelength_spinbox.setDecimals(1)
-        self.wavelength_spinbox.setSuffix(" nm")
+        self.wavelength_spinbox = self._create_slider_spinbox(400.0, 700.0, 632.8, 0.1, 1, " nm")
         self.wavelength_spinbox.valueChanged.connect(self.on_simulation_parameter_changed)
         wavelength_layout.addWidget(self.wavelength_spinbox)
         
@@ -175,12 +180,7 @@ class OpticsLabTab(QWidget):
         radius_label.setMinimumWidth(100)
         self.radius_layout.addWidget(radius_label)
         
-        self.radius_spinbox = QDoubleSpinBox()
-        self.radius_spinbox.setMinimum(500.0)
-        self.radius_spinbox.setMaximum(5000.0)
-        self.radius_spinbox.setValue(1000.0)
-        self.radius_spinbox.setDecimals(1)
-        self.radius_spinbox.setSuffix(" mm")
+        self.radius_spinbox = self._create_slider_spinbox(500.0, 5000.0, 1000.0, 0.1, 1, " mm")
         self.radius_spinbox.valueChanged.connect(self.on_simulation_parameter_changed)
         self.radius_layout.addWidget(self.radius_spinbox)
         
@@ -192,12 +192,7 @@ class OpticsLabTab(QWidget):
         gap_label.setMinimumWidth(100)
         self.gap_layout.addWidget(gap_label)
         
-        self.gap_spinbox = QDoubleSpinBox()
-        self.gap_spinbox.setMinimum(0.0)
-        self.gap_spinbox.setMaximum(2000.0)
-        self.gap_spinbox.setValue(0.0)
-        self.gap_spinbox.setDecimals(1)
-        self.gap_spinbox.setSuffix(" nm")
+        self.gap_spinbox = self._create_slider_spinbox(0.0, 2000.0, 0.0, 0.1, 1, " nm")
         self.gap_spinbox.valueChanged.connect(self.on_simulation_parameter_changed)
         self.gap_layout.addWidget(self.gap_spinbox)
         
@@ -209,16 +204,13 @@ class OpticsLabTab(QWidget):
         scale_label.setMinimumWidth(100)
         self.scale_layout.addWidget(scale_label)
         
-        self.scale_spinbox = QDoubleSpinBox()
-        self.scale_spinbox.setMinimum(0.1)
-        self.scale_spinbox.setMaximum(100.0)
-        self.scale_spinbox.setValue(5.0)
-        self.scale_spinbox.setDecimals(2)
-        self.scale_spinbox.setSuffix(" mm")
+        self.scale_spinbox = self._create_slider_spinbox(0.1, 100.0, FIXED_VIEW_RANGE_MM, 0.01, 2, " mm")
         self.scale_spinbox.valueChanged.connect(self.on_simulation_parameter_changed)
         self.scale_layout.addWidget(self.scale_spinbox)
         
         simulation_control_layout.addLayout(self.scale_layout)
+        for i in range(self.scale_layout.count()):
+            self.scale_layout.itemAt(i).widget().setVisible(False)
         
         # 劈尖干涉参数：夹角
         self.angle_layout = QHBoxLayout()
@@ -226,12 +218,7 @@ class OpticsLabTab(QWidget):
         angle_label.setMinimumWidth(100)
         self.angle_layout.addWidget(angle_label)
         
-        self.angle_spinbox = QDoubleSpinBox()
-        self.angle_spinbox.setMinimum(0.01)
-        self.angle_spinbox.setMaximum(10.0)
-        self.angle_spinbox.setValue(0.057)
-        self.angle_spinbox.setDecimals(3)
-        self.angle_spinbox.setSuffix(" °")
+        self.angle_spinbox = self._create_slider_spinbox(0.01, 10.0, 0.057, 0.001, 3, " °")
         self.angle_spinbox.valueChanged.connect(self.on_simulation_parameter_changed)
         self.angle_layout.addWidget(self.angle_spinbox)
         
@@ -243,12 +230,7 @@ class OpticsLabTab(QWidget):
         slit_width_label.setMinimumWidth(100)
         self.slit_width_layout.addWidget(slit_width_label)
         
-        self.slit_width_spinbox = QDoubleSpinBox()
-        self.slit_width_spinbox.setMinimum(1.0)
-        self.slit_width_spinbox.setMaximum(100.0)
-        self.slit_width_spinbox.setValue(10.0)
-        self.slit_width_spinbox.setDecimals(1)
-        self.slit_width_spinbox.setSuffix(" μm")
+        self.slit_width_spinbox = self._create_slider_spinbox(1.0, 100.0, 10.0, 0.1, 1, " μm")
         self.slit_width_spinbox.valueChanged.connect(self.on_simulation_parameter_changed)
         self.slit_width_layout.addWidget(self.slit_width_spinbox)
         
@@ -260,12 +242,7 @@ class OpticsLabTab(QWidget):
         slit_spacing_label.setMinimumWidth(100)
         self.slit_spacing_layout.addWidget(slit_spacing_label)
         
-        self.slit_spacing_spinbox = QDoubleSpinBox()
-        self.slit_spacing_spinbox.setMinimum(10.0)
-        self.slit_spacing_spinbox.setMaximum(200.0)
-        self.slit_spacing_spinbox.setValue(50.0)
-        self.slit_spacing_spinbox.setDecimals(1)
-        self.slit_spacing_spinbox.setSuffix(" μm")
+        self.slit_spacing_spinbox = self._create_slider_spinbox(10.0, 200.0, 50.0, 0.1, 1, " μm")
         self.slit_spacing_spinbox.valueChanged.connect(self.on_simulation_parameter_changed)
         self.slit_spacing_layout.addWidget(self.slit_spacing_spinbox)
         
@@ -398,6 +375,18 @@ class OpticsLabTab(QWidget):
         self.on_experiment_changed(self.default_experiment)
         self.on_sim_experiment_changed("牛顿环实验")
     
+    def _create_slider_spinbox(self, minimum, maximum, value, step, decimals, suffix):
+        control = SliderSpinBox(
+            minimum=minimum,
+            maximum=maximum,
+            value=value,
+            step=step,
+            decimals=decimals,
+            suffix=suffix,
+        )
+        control.setMinimumHeight(36)
+        return control
+
     def on_experiment_changed(self, text):
         """实验类型改变时的回调"""
         if text not in self.allowed_experiments:
@@ -516,8 +505,6 @@ class OpticsLabTab(QWidget):
                 self.radius_layout.itemAt(i).widget().setVisible(True)
             for i in range(self.gap_layout.count()):
                 self.gap_layout.itemAt(i).widget().setVisible(True)
-            for i in range(self.scale_layout.count()):
-                self.scale_layout.itemAt(i).widget().setVisible(True)
             # 隐藏：夹角、缝宽、缝间距
             for i in range(self.angle_layout.count()):
                 self.angle_layout.itemAt(i).widget().setVisible(False)
@@ -531,8 +518,6 @@ class OpticsLabTab(QWidget):
                 self.angle_layout.itemAt(i).widget().setVisible(True)
             for i in range(self.gap_layout.count()):
                 self.gap_layout.itemAt(i).widget().setVisible(True)
-            for i in range(self.scale_layout.count()):
-                self.scale_layout.itemAt(i).widget().setVisible(True)
             # 隐藏：曲率半径、缝宽、缝间距
             for i in range(self.radius_layout.count()):
                 self.radius_layout.itemAt(i).widget().setVisible(False)
@@ -553,8 +538,6 @@ class OpticsLabTab(QWidget):
                 self.gap_layout.itemAt(i).widget().setVisible(False)
             for i in range(self.angle_layout.count()):
                 self.angle_layout.itemAt(i).widget().setVisible(False)
-            for i in range(self.scale_layout.count()):
-                self.scale_layout.itemAt(i).widget().setVisible(False)
         # 更新仿真参数
         self.on_simulation_parameter_changed()
     
@@ -568,12 +551,11 @@ class OpticsLabTab(QWidget):
         if current_text == "牛顿环实验":
             radius = self.radius_spinbox.value()
             gap_distance = self.gap_spinbox.value()
-            scale = self.scale_spinbox.value()
             for widget in target_widgets:
                 widget.update_parameters(
                     0,
                     wavelength,
-                    scale=scale,
+                    scale=FIXED_VIEW_RANGE_MM,
                     radius=radius,
                     gap_distance=gap_distance,
                 )
@@ -581,12 +563,11 @@ class OpticsLabTab(QWidget):
             angle_degrees = self.angle_spinbox.value()
             angle_radians = angle_degrees * 3.14159265359 / 180.0  # 度转弧度
             gap_distance = self.gap_spinbox.value()
-            scale = self.scale_spinbox.value()
             for widget in target_widgets:
                 widget.update_parameters(
                     1,
                     wavelength,
-                    scale=scale,
+                    scale=FIXED_VIEW_RANGE_MM,
                     angle=angle_radians,
                     gap_distance=gap_distance,
                 )
@@ -600,6 +581,124 @@ class OpticsLabTab(QWidget):
                     slit_width=slit_width,
                     slit_spacing=slit_spacing,
                 )
+
+    def _reset_video_state(self):
+        """停止视频线程并清空视频分析数据。"""
+        if self.video_worker is not None and self.video_worker.isRunning():
+            self.video_worker.stop()
+            self.video_worker.wait()
+        self.video_worker = None
+        self.video_path = None
+        self.video_first_frame = None
+        self.intensities_raw = []
+        self.intensities_smoothed = []
+        self.frame_numbers = []
+        self.peak_count = 0
+        self.progress_bar.setVisible(False)
+        self.btn_start_stop.setText("开始/停止")
+
+    def _generate_sample_interference_image(self, width=720, height=520, phase_shift=0.0):
+        """生成内置牛顿环样例图像，返回 OpenCV BGR 图像。"""
+        y, x = np.indices((height, width), dtype=np.float32)
+        cx = width / 2.0
+        cy = height / 2.0
+        r = np.hypot(x - cx, y - cy)
+        ring_phase = 0.0026 * (r ** 2) + phase_shift
+        envelope = np.exp(-(r / (0.68 * min(width, height))) ** 2)
+        intensity = (0.5 + 0.5 * np.cos(ring_phase)) * envelope
+        intensity = np.clip(32 + intensity * 220, 0, 255).astype(np.uint8)
+
+        image = cv2.merge(
+            [
+                (intensity * 0.24).astype(np.uint8),
+                (intensity * 0.46).astype(np.uint8),
+                intensity,
+            ]
+        )
+        cv2.putText(
+            image,
+            "Newton rings sample",
+            (24, 42),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.82,
+            (255, 255, 255),
+            2,
+            cv2.LINE_AA,
+        )
+        return image
+
+    def _sample_video_path(self):
+        """生成或返回内置视频样例路径。"""
+        sample_dir = Path(tempfile.gettempdir()) / "PhysicsLabPro"
+        sample_dir.mkdir(parents=True, exist_ok=True)
+        video_path = sample_dir / "optics_interference_sample_4_levels.avi"
+        if video_path.exists():
+            video_path.unlink()
+
+        width, height = 640, 420
+        frame_count = 140
+        total_phase_change = 8.0 * np.pi
+        writer = cv2.VideoWriter(
+            str(video_path),
+            cv2.VideoWriter_fourcc(*"MJPG"),
+            20.0,
+            (width, height),
+        )
+        if not writer.isOpened():
+            raise RuntimeError("无法创建内置样例视频。")
+
+        try:
+            for frame_index in range(frame_count):
+                phase = -np.pi + frame_index * total_phase_change / (frame_count - 1)
+                frame = self._generate_sample_interference_image(width, height, phase)
+                writer.write(frame)
+        finally:
+            writer.release()
+
+        return str(video_path)
+
+    def _load_video_path(self, file_path, show_message=True):
+        """载入视频第一帧并切换到中心点选择模式。"""
+        cap = cv2.VideoCapture()
+        cap.open(file_path)
+        if not cap.isOpened():
+            raise RuntimeError("无法打开视频文件，请检查文件格式和路径")
+
+        ret, frame = cap.read()
+        cap.release()
+        if not ret:
+            raise RuntimeError("无法读取视频第一帧")
+
+        self.video_path = file_path
+        self.video_first_frame = frame
+        self.current_image = None
+        self.image_label.original_image = frame
+        self.image_label.set_mode('center_point')
+        h, w = frame.shape[:2]
+        self.image_label.center_point = (w // 2, h // 2)
+        self.image_label.point_a = None
+        self.image_label.point_b = None
+        self.image_label.update_display()
+
+        self.intensities_raw = []
+        self.intensities_smoothed = []
+        self.frame_numbers = []
+        self.peak_count = 0
+
+        self.result_text.clear()
+        self.plot_canvas.ax.clear()
+        self.plot_canvas.draw()
+        self.progress_bar.setVisible(False)
+        self.btn_start_stop.setText("开始/停止")
+
+        if show_message:
+            QMessageBox.information(
+                self,
+                "提示",
+                "视频已加载！\n\n"
+                "请在图像上点击选择干涉条纹的中心点，\n"
+                "然后点击\"开始/停止\"按钮开始分析。"
+            )
     
     def on_load_image(self):
         """加载图片按钮点击事件"""
@@ -645,6 +744,28 @@ class OpticsLabTab(QWidget):
                 QMessageBox.information(self, "成功", f"图像已加载: {file_path}")
         except Exception as e:
             QMessageBox.warning(self, "错误", f"加载图像失败:\n{str(e)}")
+
+    def on_load_image_sample(self):
+        """加载内置图片分析样例。"""
+        try:
+            self._reset_video_state()
+
+            image = self._generate_sample_interference_image()
+            self.current_image = image
+            self.image_label.original_image = image
+            self.image_label.set_mode('two_points')
+            h, w = image.shape[:2]
+            self.image_label.point_a = (70, h // 2)
+            self.image_label.point_b = (w - 70, h // 2)
+            self.image_label.center_point = None
+            self.image_label.update_display()
+
+            self.result_text.clear()
+            self.plot_canvas.ax.clear()
+            self.plot_canvas.draw()
+            self.on_start_analysis()
+        except Exception as e:
+            QMessageBox.warning(self, "错误", f"加载图片样例失败:\n{str(e)}")
     
     def on_load_video(self):
         """加载视频按钮点击事件"""
@@ -662,58 +783,24 @@ class OpticsLabTab(QWidget):
             )
             
             if file_path:
-                self.video_path = file_path
-                
-                # 读取第一帧（处理中文路径）
-                # OpenCV 无法直接读取中文路径，需要转换
-                import os
-                if os.path.exists(file_path):
-                    # 使用 numpy 和文件流读取视频（对于第一帧，直接读取图像更简单）
-                    # 但视频文件需要特殊处理，这里先尝试直接打开
-                    cap = cv2.VideoCapture()
-                    # 尝试使用文件路径
-                    cap.open(file_path)
-                    if not cap.isOpened():
-                        raise Exception("无法打开视频文件，请检查文件格式和路径")
-                    
-                    ret, frame = cap.read()
-                    if not ret:
-                        cap.release()
-                        raise Exception("无法读取视频第一帧")
-                    
-                    cap.release()
-                else:
-                    raise Exception("视频文件不存在")
-                
-                # 保存第一帧并显示
-                self.video_first_frame = frame
-                self.image_label.original_image = frame
-                self.image_label.set_mode('center_point')
-                self.image_label.center_point = None
-                self.image_label.update_display()
-                
-                # 重置数据
-                self.intensities_raw = []
-                self.intensities_smoothed = []
-                self.frame_numbers = []
-                self.peak_count = 0
-                
-                # 清空结果
-                self.result_text.clear()
-                self.plot_canvas.ax.clear()
-                self.plot_canvas.draw()
-                
-                # 显示提示
-                QMessageBox.information(
-                    self, 
-                    "提示", 
-                    "视频已加载！\n\n"
-                    "请在图像上点击选择干涉条纹的中心点，\n"
-                    "然后点击\"开始/停止\"按钮开始分析。"
-                )
+                self._load_video_path(file_path, show_message=True)
                 
         except Exception as e:
             QMessageBox.warning(self, "错误", f"加载视频失败:\n{str(e)}")
+
+    def on_load_video_sample(self):
+        """加载内置视频分析样例。"""
+        try:
+            self._reset_video_state()
+            file_path = self._sample_video_path()
+            self._load_video_path(file_path, show_message=False)
+            self.result_text.setPlainText(
+                "已加载内置视频样例。\n\n"
+                "中心点已自动放在画面中央，可以直接点击“开始/停止”查看亮度随帧变化；"
+                "也可以在图像上重新点击选择其他中心点。"
+            )
+        except Exception as e:
+            QMessageBox.warning(self, "错误", f"加载视频样例失败:\n{str(e)}")
     
     def on_start_analysis(self):
         """开始分析按钮点击事件"""

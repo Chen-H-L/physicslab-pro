@@ -1,11 +1,229 @@
 import cv2
 import numpy as np
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import QSignalBlocker, Qt, pyqtSignal
 from PyQt6.QtGui import QImage, QPixmap
-from PyQt6.QtWidgets import QLabel
+from PyQt6.QtWidgets import (
+    QAbstractSpinBox,
+    QDoubleSpinBox,
+    QHBoxLayout,
+    QLabel,
+    QSizePolicy,
+    QSlider,
+    QVBoxLayout,
+    QWidget,
+)
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 import matplotlib.pyplot as plt
+
+
+class SliderSpinBox(QWidget):
+    """Combined slider and numeric input for float parameters."""
+
+    valueChanged = pyqtSignal(float)
+
+    def __init__(
+        self,
+        minimum=0.0,
+        maximum=100.0,
+        value=0.0,
+        step=1.0,
+        decimals=2,
+        suffix="",
+        parent=None,
+    ):
+        super().__init__(parent)
+        self._minimum = float(minimum)
+        self._maximum = float(maximum)
+        self._single_step = max(float(step), 1e-9)
+        self._decimals = int(decimals)
+        self._slider_steps = 1000
+        self._value = round(float(value), self._decimals)
+
+        self.slider = QSlider(Qt.Orientation.Horizontal, self)
+        self.slider.setTracking(True)
+        self.slider.setSingleStep(1)
+        self.slider.setPageStep(10)
+        self.slider.setMinimumHeight(28)
+        self.slider.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.slider.setStyleSheet(
+            """
+            QSlider::groove:horizontal {
+                height: 10px;
+                background: #dbe7f3;
+                border-radius: 5px;
+            }
+            QSlider::sub-page:horizontal {
+                background: #4f8ddf;
+                border-radius: 5px;
+            }
+            QSlider::add-page:horizontal {
+                background: #dbe7f3;
+                border-radius: 5px;
+            }
+            QSlider::handle:horizontal {
+                background: #ffffff;
+                border: 2px solid #4f8ddf;
+                width: 22px;
+                margin: -7px 0;
+                border-radius: 11px;
+            }
+            QSlider::handle:horizontal:hover {
+                background: #f3f8ff;
+                border-color: #2f6fca;
+            }
+            """
+        )
+
+        self.spinbox = QDoubleSpinBox(self)
+        self.spinbox.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
+        self.spinbox.setKeyboardTracking(False)
+        self.spinbox.setAccelerated(True)
+        self.spinbox.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.spinbox.setMinimumWidth(140)
+        self.spinbox.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+
+        top_row = QHBoxLayout()
+        top_row.setContentsMargins(0, 0, 0, 0)
+        top_row.setSpacing(0)
+        top_row.addStretch(1)
+        top_row.addWidget(self.spinbox, 0)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
+        layout.addLayout(top_row)
+        layout.addWidget(self.slider, 1)
+
+        self.slider.valueChanged.connect(self._on_slider_value_changed)
+        self.spinbox.valueChanged.connect(self._on_spinbox_value_changed)
+
+        self.setDecimals(decimals)
+        self.setSingleStep(step)
+        self.setSuffix(suffix)
+        self.setRange(minimum, maximum)
+        self.setValue(value)
+        self.setMinimumHeight(44)
+
+    def _compute_slider_steps(self):
+        if self._maximum <= self._minimum:
+            return 1
+        natural_steps = int(round((self._maximum - self._minimum) / self._single_step))
+        natural_steps = max(1, natural_steps)
+        return min(max(natural_steps, 200), 5000)
+
+    def _clamp_and_round(self, value):
+        if self._maximum <= self._minimum:
+            return round(self._minimum, self._decimals)
+
+        bounded = max(self._minimum, min(self._maximum, float(value)))
+        return round(bounded, self._decimals)
+
+    def _value_to_slider(self, value):
+        if self._maximum <= self._minimum:
+            return 0
+        ratio = (float(value) - self._minimum) / (self._maximum - self._minimum)
+        ratio = max(0.0, min(1.0, ratio))
+        return int(round(ratio * self._slider_steps))
+
+    def _slider_to_value(self, slider_value):
+        if self._maximum <= self._minimum:
+            return self._minimum
+        ratio = slider_value / max(self._slider_steps, 1)
+        raw_value = self._minimum + ratio * (self._maximum - self._minimum)
+        return self._clamp_and_round(raw_value)
+
+    def _refresh_slider_scale(self):
+        current = self._value
+        self._slider_steps = self._compute_slider_steps()
+        blocker = QSignalBlocker(self.slider)
+        self.slider.setRange(0, self._slider_steps)
+        self.slider.setValue(self._value_to_slider(current))
+        del blocker
+
+    def _apply_value(self, value, emit_signal):
+        new_value = self._clamp_and_round(value)
+        old_value = self._value
+
+        slider_blocker = QSignalBlocker(self.slider)
+        spinbox_blocker = QSignalBlocker(self.spinbox)
+        self.spinbox.setValue(new_value)
+        self.slider.setValue(self._value_to_slider(new_value))
+        del spinbox_blocker
+        del slider_blocker
+        self._value = new_value
+
+        if emit_signal and abs(old_value - new_value) > 10 ** (-self._decimals) * 0.5:
+            self.valueChanged.emit(new_value)
+
+    def _on_slider_value_changed(self, slider_value):
+        self._apply_value(self._slider_to_value(slider_value), emit_signal=True)
+
+    def _on_spinbox_value_changed(self, value):
+        self._apply_value(value, emit_signal=True)
+
+    def value(self):
+        return self._value
+
+    def setValue(self, value):
+        self._apply_value(value, emit_signal=True)
+
+    def minimum(self):
+        return self._minimum
+
+    def maximum(self):
+        return self._maximum
+
+    def setRange(self, minimum, maximum):
+        self._minimum = float(minimum)
+        self._maximum = float(maximum)
+        if self._maximum < self._minimum:
+            self._minimum, self._maximum = self._maximum, self._minimum
+        self.spinbox.setRange(self._minimum, self._maximum)
+        self._refresh_slider_scale()
+        self._apply_value(self._value, emit_signal=False)
+
+    def setMinimum(self, minimum):
+        self.setRange(minimum, self._maximum)
+
+    def setMaximum(self, maximum):
+        self.setRange(self._minimum, maximum)
+
+    def setDecimals(self, decimals):
+        self._decimals = int(decimals)
+        self.spinbox.setDecimals(self._decimals)
+
+    def decimals(self):
+        return self._decimals
+
+    def setSuffix(self, suffix):
+        self.spinbox.setSuffix(suffix)
+
+    def suffix(self):
+        return self.spinbox.suffix()
+
+    def setSingleStep(self, step):
+        self._single_step = max(float(step), 1e-9)
+        self.spinbox.setSingleStep(self._single_step)
+        self._refresh_slider_scale()
+        self._apply_value(self.spinbox.value(), emit_signal=False)
+
+    def singleStep(self):
+        return self._single_step
+
+    def setKeyboardTracking(self, enabled):
+        self.spinbox.setKeyboardTracking(enabled)
+
+    def setAccelerated(self, enabled):
+        self.spinbox.setAccelerated(enabled)
+
+    def setMinimumHeight(self, min_height):
+        spinbox_height = max(36, int(min_height))
+        slider_height = max(28, int(min_height * 0.7))
+        total_height = spinbox_height + slider_height + 8
+        super().setMinimumHeight(total_height)
+        self.spinbox.setMinimumHeight(spinbox_height)
+        self.slider.setMinimumHeight(slider_height)
 
 
 class ClickableImageLabel(QLabel):
@@ -421,13 +639,34 @@ class MatplotlibCanvas(FigureCanvas):
             self.ax.text(0.5, 0.5, '无数据', ha='center', va='center',
                        transform=self.ax.transAxes, color=self.theme['text'])
         else:
-            # 绘制折线
-            self.ax.plot(x_data, y_data, 'o-', color=self.theme['primary'],
-                       linewidth=2, markersize=8, markerfacecolor=self.theme['face'],
-                       markeredgecolor=self.theme['primary'], markeredgewidth=2)
+            x_data = np.asarray(x_data, dtype=float)
+            y_data = np.asarray(y_data, dtype=float)
+            valid_mask = np.isfinite(x_data) & np.isfinite(y_data)
+            x_data = x_data[valid_mask]
+            y_data = y_data[valid_mask]
 
-            # 添加渐变填充区域
-            self.ax.fill_between(x_data, y_data, alpha=0.2, color=self.theme['primary'])
+            if len(x_data) == 0 or len(y_data) == 0:
+                self.ax.text(0.5, 0.5, '无有效数据', ha='center', va='center',
+                           transform=self.ax.transAxes, color=self.theme['text'])
+            else:
+                # 折线图按横坐标从小到大连线，避免双列数据录入顺序影响图形。
+                order = np.argsort(x_data)
+                x_sorted = x_data[order]
+                y_sorted = y_data[order]
+
+                self.ax.plot(
+                    x_sorted,
+                    y_sorted,
+                    color=self.theme['primary'],
+                    linewidth=2.2,
+                    marker='o',
+                    markersize=6,
+                    markerfacecolor='#ffffff',
+                    markeredgecolor=self.theme['primary'],
+                    markeredgewidth=1.8,
+                    label='数据折线',
+                )
+                self.ax.legend(loc='best', framealpha=0.85)
 
         self.ax.set_xlabel(xlabel, color=self.theme['text'])
         self.ax.set_ylabel(ylabel, color=self.theme['text'])

@@ -1,8 +1,10 @@
 import numpy as np
+from html import escape
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
     QButtonGroup,
+    QComboBox,
     QFileDialog,
     QFrame,
     QGroupBox,
@@ -49,7 +51,7 @@ class DataWorkstationTab(QWidget):
         left_panel.setLayout(left_layout)
 
         # 标题
-        input_title = QLabel("📊 数据输入")
+        input_title = QLabel("数据输入")
         input_title.setFont(QFont("Arial", 12, QFont.Weight.Bold))
         left_layout.addWidget(input_title)
 
@@ -138,17 +140,46 @@ class DataWorkstationTab(QWidget):
 
         # 按钮组
         button_layout = QHBoxLayout()
-        self.btn_import_csv = QPushButton("📁 导入 CSV")
-        self.btn_clear = QPushButton("🗑️ 清空数据")
+        self.btn_import_csv = QPushButton("导入 CSV")
+        self.btn_clear = QPushButton("清空数据")
 
         button_layout.addWidget(self.btn_import_csv)
         button_layout.addWidget(self.btn_clear)
         left_layout.addLayout(button_layout)
 
+        sample_group = QGroupBox("样例数据")
+        sample_layout = QVBoxLayout(sample_group)
+        sample_layout.setContentsMargins(10, 14, 10, 10)
+        sample_layout.setSpacing(8)
+
+        self.sample_combo = QComboBox()
+        self.sample_combo.addItems(
+            [
+                "样例数据1：等体积过程温度和压强数据",
+                "样例数据2：迈克尔逊干涉仪波长测量值",
+                "样例数据3：胡克定律位移-力数据",
+            ]
+        )
+        sample_layout.addWidget(self.sample_combo)
+
+        self.btn_load_sample = QPushButton("加载样例")
+        self.btn_load_sample.clicked.connect(self.on_load_sample_data)
+        sample_layout.addWidget(self.btn_load_sample)
+
+        sample_hint = QLabel(
+            "样例数据1：等体积过程温度和压强数据（双列数据，可用于检测曲线拟合）\n"
+            "样例数据2：迈克尔逊干涉仪测量波长的实验测量值（单列数据，可用于绘制折线图，散点图）\n"
+            "样例数据3：胡克定律位移-力线性拟合数据（双列数据，可用于检测线性拟合）"
+        )
+        sample_hint.setWordWrap(True)
+        sample_hint.setStyleSheet("color: #6c757d; line-height: 1.45; font-size: 11px;")
+        sample_layout.addWidget(sample_hint)
+        left_layout.addWidget(sample_group)
+
         left_layout.addSpacing(15)
 
         # 统计结果显示区
-        stats_group = QGroupBox("📈 统计结果")
+        stats_group = QGroupBox("统计结果")
         stats_group.setStyleSheet("""
             QGroupBox {
                 font-weight: bold;
@@ -173,6 +204,41 @@ class DataWorkstationTab(QWidget):
 
         stats_group.setLayout(stats_layout)
         left_layout.addWidget(stats_group)
+
+        # 曲线拟合结果区
+        fit_group = QGroupBox("曲线拟合")
+        fit_group.setStyleSheet("""
+            QGroupBox {
+                font-weight: bold;
+                border: 1px solid #bdc3c7;
+                border-radius: 5px;
+                margin-top: 10px;
+                padding-top: 10px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 5px 0 5px;
+            }
+        """)
+        fit_layout = QVBoxLayout()
+
+        fit_hint = QLabel("双列数据按 X-Y 拟合；单列数据以序号作为 X。")
+        fit_hint.setWordWrap(True)
+        fit_hint.setStyleSheet("color: #6c757d; line-height: 1.4;")
+        fit_layout.addWidget(fit_hint)
+
+        self.btn_start_fit = QPushButton("自动拟合")
+        self.btn_start_fit.clicked.connect(self.on_start_fit)
+        fit_layout.addWidget(self.btn_start_fit)
+
+        fit_target_hint = QLabel("拟合结果会在右侧图表上方显示，并同步绘制推荐拟合曲线。")
+        fit_target_hint.setWordWrap(True)
+        fit_target_hint.setStyleSheet("color: #6c757d; line-height: 1.4;")
+        fit_layout.addWidget(fit_target_hint)
+
+        fit_group.setLayout(fit_layout)
+        left_layout.addWidget(fit_group)
 
         left_layout.addStretch()
 
@@ -247,13 +313,62 @@ class DataWorkstationTab(QWidget):
         chart_type_container = QWidget()
         chart_type_container.setLayout(chart_type_layout)
         chart_type_container.setMaximumWidth(500)
+        chart_type_container.setMaximumHeight(52)
         right_layout.addWidget(chart_type_container)
-        right_layout.addSpacing(10)
+
+        self.fit_result_group = QGroupBox("拟合结果概览")
+        self.fit_result_group.setStyleSheet("""
+            QGroupBox {
+                background-color: #f8fbff;
+                border: 1px solid #cfe2ff;
+                border-radius: 8px;
+                margin-top: 8px;
+                font-weight: 600;
+                color: #1f2937;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 12px;
+                padding: 0 4px;
+            }
+        """)
+        fit_result_layout = QHBoxLayout(self.fit_result_group)
+        fit_result_layout.setContentsMargins(12, 16, 12, 10)
+        fit_result_layout.setSpacing(12)
+
+        self.fit_summary_label = QLabel(
+            "点击左侧“自动拟合”，这里会显示推荐模型、公式和 R²。"
+        )
+        self.fit_summary_label.setWordWrap(True)
+        self.fit_summary_label.setMinimumWidth(360)
+        self.fit_summary_label.setStyleSheet(
+            "color: #1f2937; font-size: 13px; line-height: 1.45;"
+        )
+        fit_result_layout.addWidget(self.fit_summary_label, 3)
+
+        self.result_text = QTextEdit()
+        self.result_text.setReadOnly(True)
+        self.result_text.setMinimumHeight(92)
+        self.result_text.setMaximumHeight(128)
+        self.result_text.setPlaceholderText("模型对比结果会显示在这里。")
+        self.result_text.setStyleSheet("""
+            QTextEdit {
+                background-color: #ffffff;
+                color: #333333;
+                border: 1px solid #d7e6fb;
+                border-radius: 6px;
+                padding: 6px;
+                font-size: 11px;
+            }
+        """)
+        fit_result_layout.addWidget(self.result_text, 2)
+        self.fit_result_group.setMaximumHeight(170)
+        right_layout.addWidget(self.fit_result_group)
 
         # Matplotlib 画布（使用现代清新风）
         self.plot_canvas = MatplotlibCanvas(self, width=8, height=5, dpi=100, theme='modern')
         self.plot_canvas.setMinimumSize(600, 400)
-        right_layout.addWidget(self.plot_canvas)
+        right_layout.addWidget(self.plot_canvas, 1)
 
         # 设置右侧面板样式
         right_panel.setFrameShape(QFrame.Shape.StyledPanel)
@@ -292,6 +407,10 @@ class DataWorkstationTab(QWidget):
 
         self.update_statistics()
         self.update_chart()
+        self.result_text.clear()
+        self.fit_summary_label.setText(
+            "点击左侧“自动拟合”，这里会显示推荐模型、公式和 R²。"
+        )
 
     def on_cell_changed(self, row, column):
         """单元格内容变化时触发"""
@@ -304,6 +423,10 @@ class DataWorkstationTab(QWidget):
         """延迟更新统计和图表"""
         self.update_statistics()
         self.update_chart()
+        self.result_text.clear()
+        self.fit_summary_label.setText(
+            "点击左侧“自动拟合”，这里会显示推荐模型、公式和 R²。"
+        )
 
     def on_chart_type_changed(self):
         """图表类型切换"""
@@ -325,6 +448,123 @@ class DataWorkstationTab(QWidget):
             self.chart_type = 'histogram'
 
         self.update_chart()
+
+    def _set_chart_type(self, chart_type):
+        """程序内部切换图表类型。"""
+        button_map = {
+            'boxplot': self.btn_chart_boxplot,
+            'line': self.btn_chart_line,
+            'bar': self.btn_chart_bar,
+            'scatter': self.btn_chart_scatter,
+            'histogram': self.btn_chart_histogram,
+        }
+        self.chart_type = chart_type
+        for name, button in button_map.items():
+            button.setChecked(name == chart_type)
+
+    def _set_data_mode(self, mode):
+        """程序内部切换单列/双列模式。"""
+        self.data_mode = mode
+        if mode == 'single':
+            self.btn_single_mode.setChecked(True)
+            self.data_table.setHorizontalHeaderLabels(["数值 (Y)"])
+            self.data_table.setColumnHidden(0, True)
+        else:
+            self.btn_double_mode.setChecked(True)
+            self.data_table.setHorizontalHeaderLabels(["X", "Y"])
+            self.data_table.setColumnHidden(0, False)
+
+    def _populate_table(self, rows, mode):
+        """填充表格并避免逐格触发重复刷新。"""
+        self.data_table.blockSignals(True)
+        try:
+            self.data_table.setRowCount(0)
+            for row_index, row in enumerate(rows):
+                self.data_table.insertRow(row_index)
+                if mode == 'single':
+                    x_value = row_index + 1
+                    y_value = row[0]
+                else:
+                    x_value, y_value = row
+                self.data_table.setItem(row_index, 0, QTableWidgetItem(str(x_value)))
+                self.data_table.setItem(row_index, 1, QTableWidgetItem(str(y_value)))
+        finally:
+            self.data_table.blockSignals(False)
+
+    def on_load_sample_data(self):
+        """加载内置样例数据。"""
+        samples = [
+            {
+                "mode": "double",
+                "chart": "scatter",
+                "name": "等体积过程温度和压强数据",
+                "rows": [
+                    (280, 94.8),
+                    (290, 98.1),
+                    (300, 101.2),
+                    (310, 104.9),
+                    (320, 108.0),
+                    (330, 111.7),
+                    (340, 114.6),
+                    (350, 118.4),
+                    (360, 121.5),
+                    (370, 124.9),
+                    (380, 128.1),
+                ],
+            },
+            {
+                "mode": "single",
+                "chart": "line",
+                "name": "迈克尔逊干涉仪测量波长的实验测量值",
+                "rows": [
+                    (634.0,),
+                    (633.0,),
+                    (633.0,),
+                    (632.25,),
+                    (633.2,),
+                    (632.67,),
+                    (633.0,),
+                    (633.0,),
+                    (632.33,),
+                    (633.3,),
+                    (632.45,),
+                    (633.0,),
+                ],
+            },
+            {
+                "mode": "double",
+                "chart": "scatter",
+                "name": "胡克定律位移-力线性拟合数据",
+                "rows": [
+                    (-6, -2.99),
+                    (-5, -2.52),
+                    (-4, -1.98),
+                    (-3, -1.51),
+                    (-2, -1.02),
+                    (-1, -0.49),
+                    (0, 0.02),
+                    (1, 0.48),
+                    (2, 1.03),
+                    (3, 1.49),
+                    (4, 2.01),
+                    (5, 2.47),
+                    (6, 3.04),
+                ],
+            },
+        ]
+        sample = samples[self.sample_combo.currentIndex()]
+        self._set_data_mode(sample["mode"])
+        self._set_chart_type(sample["chart"])
+        self._populate_table(sample["rows"], sample["mode"])
+        self.update_statistics()
+        self.update_chart()
+        self.result_text.setPlainText(
+            f"已加载样例：{sample['name']}\n\n"
+            "可以切换图表类型查看数据分布，或点击左侧“自动拟合”检测变量关系。"
+        )
+        self.fit_summary_label.setText(
+            "点击左侧“自动拟合”，这里会显示推荐模型、公式和 R²。"
+        )
 
     def get_data_from_table(self):
         """从表格中读取数据，支持单列和双列模式"""
@@ -368,7 +608,7 @@ class DataWorkstationTab(QWidget):
         result = calculate_statistics(y_data)
 
         # 构建统计显示文本
-        stats_text = f"""📊 统计结果
+        stats_text = f"""统计结果
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 数据点数量: {result['count']}
 平均值: {result['mean']:.6f}
@@ -382,7 +622,7 @@ class DataWorkstationTab(QWidget):
 """
 
         if result['outliers']:
-            stats_text += f"\n⚠️  检测到 {len(result['outliers'])} 个异常值:\n"
+            stats_text += f"\n检测到 {len(result['outliers'])} 个异常值:\n"
             for idx, val, z_score in result['outliers']:
                 stats_text += f"  • 第 {idx + 1} 个数据: {val:.6f} (Z-score = {z_score:.2f})\n"
             stats_text += "\n建议：考虑剔除这些异常值后重新计算。\n"
@@ -482,6 +722,14 @@ class DataWorkstationTab(QWidget):
                     "请在表格中输入至少 2 行数据，或使用\"导入 CSV\"按钮导入数据。"
                 )
                 return
+
+            if len(np.unique(x_data)) < 2:
+                QMessageBox.warning(
+                    self,
+                    "警告",
+                    "X 数据至少需要包含 2 个不同取值，才能进行曲线拟合。"
+                )
+                return
             
             # 执行自动拟合
             result = auto_fit(x_data, y_data)
@@ -498,48 +746,52 @@ class DataWorkstationTab(QWidget):
         """显示拟合结果"""
         # 绘制图表
         self.plot_canvas.ax.clear()
+
+        theme = self.plot_canvas.theme
         
         # 绘制原始数据点（散点）
         self.plot_canvas.ax.scatter(
             result['x_data'], 
             result['y_data'], 
-            color='cyan', 
-            s=50, 
-            alpha=0.7, 
+            color=theme['primary'],
+            s=70,
+            alpha=0.78,
             label='原始数据点',
-            edgecolors='white',
-            linewidths=0.5
+            edgecolors=theme['face'],
+            linewidths=1.2
         )
         
         # 绘制拟合曲线（实线）
         self.plot_canvas.ax.plot(
             result['x_fitted'], 
             result['y_fitted'], 
-            'r-', 
-            linewidth=2, 
+            color=theme['danger'],
+            linestyle='-',
+            linewidth=2.2,
             label=f'拟合曲线 ({result["best_formula"]})'
         )
         
-        self.plot_canvas.ax.set_xlabel('X', color='#e0e4eb')
-        self.plot_canvas.ax.set_ylabel('Y', color='#e0e4eb')
-        self.plot_canvas.ax.set_title('数据拟合结果', color='#e0e4eb')
-        self.plot_canvas.ax.grid(True, alpha=0.2, color='#3a3f5c', linestyle='--')
-        self.plot_canvas.ax.legend(loc='best', framealpha=0.8)
-        
-        # 设置坐标轴颜色
-        axis_color = '#b0b8c4'
-        self.plot_canvas.ax.tick_params(colors=axis_color)
-        self.plot_canvas.ax.spines['bottom'].set_color(axis_color)
-        self.plot_canvas.ax.spines['top'].set_color(axis_color)
-        self.plot_canvas.ax.spines['right'].set_color(axis_color)
-        self.plot_canvas.ax.spines['left'].set_color(axis_color)
-        
-        self.plot_canvas.fig.tight_layout()
+        xlabel = '序号' if self.data_mode == 'single' else 'X'
+        ylabel = '数值 (Y)' if self.data_mode == 'single' else 'Y'
+        self.plot_canvas.ax.set_xlabel(xlabel, color=theme['text'])
+        self.plot_canvas.ax.set_ylabel(ylabel, color=theme['text'])
+        self.plot_canvas.ax.set_title('自动曲线拟合结果', color=theme['text'])
+        self.plot_canvas.ax.grid(True, alpha=0.3, color=theme['grid'], linestyle='--')
+        self.plot_canvas.ax.legend(loc='best', framealpha=0.9)
+        self.plot_canvas.apply_theme()
+        self.plot_canvas.apply_compact_layout()
         self.plot_canvas.draw()
         
         # 显示文本结果
+        mode_note = (
+            "当前为单列数据：程序以数据序号作为自变量 X。"
+            if self.data_mode == 'single'
+            else "当前为双列数据：第一列为自变量 X，第二列为因变量 Y。"
+        )
         result_str = f"""拟合结果：
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+{mode_note}
+
 最佳拟合公式: {result['best_formula']}
 公式表达式: {result['best_formula_str']}
 拟合优度 (R²): {result['best_r_squared']:.6f}
@@ -560,10 +812,35 @@ class DataWorkstationTab(QWidget):
 说明：
 • R² 值越接近 1，表示拟合效果越好
 • 软件自动尝试了线性、指数、余弦三种拟合方式
-• 选择了 R² 值最高的拟合结果
+• 程序会推荐 R² 值最高的模型，用于辅助判断实验变量关系
+• 可用于 P-V、V-T、P-T 关系判断、振动周期曲线和光强分布趋势分析
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"""
         
         self.result_text.setText(result_str)
+        self._update_fit_summary(result)
+
+    def _update_fit_summary(self, result: dict):
+        """更新右侧醒目的拟合结果摘要。"""
+        comparison_items = []
+        for item in result["all_results"]:
+            if item["r_squared"] != -np.inf:
+                comparison_items.append(f"{item['formula']} R²={item['r_squared']:.4f}")
+            else:
+                comparison_items.append(f"{item['formula']}失败")
+
+        self.fit_summary_label.setText(
+            "<div>"
+            "<span style='font-size:14px; color:#64748b;'>推荐模型</span><br>"
+            f"<span style='font-size:22px; font-weight:700; color:#0f172a;'>"
+            f"{escape(result['best_formula'])}</span>"
+            f"<span style='font-size:18px; font-weight:700; color:#dc2626;'>"
+            f"    R² = {result['best_r_squared']:.6f}</span><br>"
+            f"<span style='font-size:13px; color:#334155;'>"
+            f"{escape(result['best_formula_str'])}</span><br>"
+            f"<span style='font-size:12px; color:#64748b;'>"
+            f"{escape('；'.join(comparison_items))}</span>"
+            "</div>"
+        )
     
     def on_calculate_uncertainty(self):
         """计算不确定度按钮点击事件"""
@@ -670,7 +947,7 @@ class DataWorkstationTab(QWidget):
 """
         
         if result['outliers']:
-            result_str += f"\n⚠️  检测到 {len(result['outliers'])} 个异常值 (Z-score > 3):\n"
+            result_str += f"\n检测到 {len(result['outliers'])} 个异常值 (Z-score > 3):\n"
             for idx, val, z_score in result['outliers']:
                 result_str += f"  • 第 {idx + 1} 个数据: {val:.6f} (Z-score = {z_score:.2f})\n"
             result_str += "\n建议：考虑剔除这些异常值后重新计算。\n"
@@ -737,6 +1014,10 @@ class DataWorkstationTab(QWidget):
                 # 更新统计和图表
                 self.update_statistics()
                 self.update_chart()
+                self.result_text.clear()
+                self.fit_summary_label.setText(
+                    "点击左侧“自动拟合”，这里会显示推荐模型、公式和 R²。"
+                )
 
                 QMessageBox.information(self, "成功", f"已导入 {len(df)} 行数据")
 
@@ -762,3 +1043,7 @@ class DataWorkstationTab(QWidget):
 
             self.update_statistics()
             self.update_chart()
+            self.result_text.clear()
+            self.fit_summary_label.setText(
+                "点击左侧“自动拟合”，这里会显示推荐模型、公式和 R²。"
+            )

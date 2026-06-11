@@ -7,9 +7,7 @@ from matplotlib.figure import Figure
 from PyQt6.QtCore import QTimer, Qt
 from PyQt6.QtGui import QColor, QFont, QLinearGradient, QPainter, QPen
 from PyQt6.QtWidgets import (
-    QAbstractSpinBox,
     QComboBox,
-    QDoubleSpinBox,
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
@@ -22,6 +20,8 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+
+from .widgets import SliderSpinBox
 
 
 plt.rcParams["font.sans-serif"] = ["SimHei", "Microsoft YaHei", "Arial Unicode MS", "DejaVu Sans"]
@@ -624,14 +624,15 @@ class ThermodynamicsLabTab(QWidget):
         self.reset_button.clicked.connect(self.reset_simulation)
 
     def _create_spinbox(self, minimum, maximum, value, step, decimals, suffix):
-        spin = QDoubleSpinBox()
-        spin.setRange(minimum, maximum)
-        spin.setValue(value)
-        spin.setSingleStep(step)
-        spin.setDecimals(decimals)
-        spin.setSuffix(suffix)
+        spin = SliderSpinBox(
+            minimum=minimum,
+            maximum=maximum,
+            value=value,
+            step=step,
+            decimals=decimals,
+            suffix=suffix,
+        )
         spin.setMinimumHeight(36)
-        spin.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.UpDownArrows)
         return spin
 
     def _on_mode_changed(self):
