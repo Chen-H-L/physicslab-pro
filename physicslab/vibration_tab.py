@@ -78,7 +78,8 @@ class PhaseInputWidget(QWidget):
         self.radians_spinbox.setKeyboardTracking(False)
         self.radians_spinbox.setAccelerated(True)
         self.radians_spinbox.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.radians_spinbox.setMinimumWidth(128)
+        self.radians_spinbox.setMinimumWidth(132)
+        self.radians_spinbox.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
         self.degrees_spinbox = QDoubleSpinBox(self)
         self.degrees_spinbox.setRange(-180.0, 180.0)
@@ -89,13 +90,15 @@ class PhaseInputWidget(QWidget):
         self.degrees_spinbox.setKeyboardTracking(False)
         self.degrees_spinbox.setAccelerated(True)
         self.degrees_spinbox.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.degrees_spinbox.setMinimumWidth(112)
+        self.degrees_spinbox.setMinimumWidth(132)
+        self.degrees_spinbox.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
-        layout = QHBoxLayout(self)
+        layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(8)
+        layout.setSpacing(6)
         layout.addWidget(self.radians_spinbox)
         layout.addWidget(self.degrees_spinbox)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
         self.radians_spinbox.valueChanged.connect(self._on_radians_changed)
         self.degrees_spinbox.valueChanged.connect(self._on_degrees_changed)
@@ -146,9 +149,11 @@ class PhaseInputWidget(QWidget):
         self.degrees_spinbox.setAccelerated(enabled)
 
     def setMinimumHeight(self, min_height):
-        super().setMinimumHeight(int(min_height))
-        self.radians_spinbox.setMinimumHeight(int(min_height))
-        self.degrees_spinbox.setMinimumHeight(int(min_height))
+        spinbox_height = max(34, int(min_height))
+        total_height = spinbox_height * 2 + 6
+        super().setMinimumHeight(total_height)
+        self.radians_spinbox.setMinimumHeight(spinbox_height)
+        self.degrees_spinbox.setMinimumHeight(spinbox_height)
 
 
 class SpringOscillatorWidget(QWidget):
@@ -1395,20 +1400,7 @@ class VibrationLabTab(QWidget):
         return phase_input
 
     def _create_compact_phase_input(self, value=0.0):
-        spinbox = QDoubleSpinBox()
-        spinbox.setRange(-np.pi, np.pi)
-        spinbox.setDecimals(4)
-        spinbox.setValue(value)
-        spinbox.setSingleStep(0.1)
-        spinbox.setSuffix(" rad")
-        spinbox.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
-        spinbox.setKeyboardTracking(False)
-        spinbox.setAccelerated(True)
-        spinbox.setAlignment(Qt.AlignmentFlag.AlignRight)
-        spinbox.setMinimumHeight(36)
-        spinbox.setMinimumWidth(120)
-        spinbox.setMaximumWidth(150)
-        return spinbox
+        return self._create_phase_input(value)
 
     def on_diff_case_changed(self, case_text):
         is_special = case_text == self.DIFF_SPECIAL_CASE

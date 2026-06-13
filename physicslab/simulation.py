@@ -1,4 +1,5 @@
 import math
+from pathlib import Path
 
 import numpy as np
 from OpenGL import GL as gl
@@ -22,6 +23,12 @@ from PyQt6.QtWidgets import (
 )
 
 FIXED_VIEW_RANGE_MM = 3.5
+ASSET_DIR = Path(__file__).resolve().parent / "assets"
+NEWTON_RINGS_MODEL_IMAGE = ASSET_DIR / "newton_rings_theory_model.png"
+WEDGE_MODEL_IMAGE = ASSET_DIR / "wedge_theory_model.png"
+DOUBLE_SLIT_MODEL_IMAGE = ASSET_DIR / "double_slit_optics_theory_model.png"
+MICHELSON_MODEL_IMAGE = ASSET_DIR / "michelson_theory_model.png"
+GRATING_MODEL_IMAGE = ASSET_DIR / "grating_theory_model.png"
 
 class LegacyOpenGLSimulationWidget(QOpenGLWidget):
     """OpenGL 仿真显示组件"""
@@ -371,6 +378,8 @@ class SimulationWidget(QWidget):
         0: "Newton Rings",
         1: "Wedge Interference",
         2: "Double Slit",
+        3: "Michelson Interferometer",
+        4: "Grating Diffraction",
     }
 
     def __init__(self, parent=None):
@@ -386,6 +395,9 @@ class SimulationWidget(QWidget):
         self.angle = 0.001
         self.slit_width = 10.0
         self.slit_spacing = 50.0
+        self.path_difference = 800.0
+        self.mirror_tilt = 0.0
+        self.grating_count = 30.0
 
         self._cached_image = None
         self._cache_key = None
@@ -421,6 +433,13 @@ class SimulationWidget(QWidget):
         elif experiment_type == 2:
             self.slit_width = kwargs.get('slit_width', self.slit_width)
             self.slit_spacing = kwargs.get('slit_spacing', self.slit_spacing)
+        elif experiment_type == 3:
+            self.path_difference = kwargs.get('path_difference', self.path_difference)
+            self.mirror_tilt = 0.0
+        elif experiment_type == 4:
+            self.slit_width = kwargs.get('slit_width', self.slit_width)
+            self.slit_spacing = kwargs.get('slit_spacing', self.slit_spacing)
+            self.grating_count = kwargs.get('grating_count', self.grating_count)
 
         self._invalidate_cache()
         self.update()
@@ -443,6 +462,9 @@ class SimulationWidget(QWidget):
             round(float(self.angle), 8),
             round(float(self.slit_width), 4),
             round(float(self.slit_spacing), 4),
+            round(float(self.path_difference), 4),
+            round(float(self.mirror_tilt), 4),
+            round(float(self.grating_count), 4),
         )
         if cache_key == self._cache_key and self._cached_image is not None:
             return self._cached_image
@@ -486,20 +508,50 @@ class SimulationWidget(QWidget):
             d = x_mm * 1_000_000.0 * np.tan(float(self.angle)) + float(self.gap_distance)
             return np.cos(2.0 * np.pi * d / wavelength) ** 2
 
-        x_mm = xx * 100.0
-        sin_theta = x_mm / 1000.0
-        slit_spacing_nm = max(float(self.slit_spacing), 1e-6) * 1000.0
-        slit_width_nm = max(float(self.slit_width), 1e-6) * 1000.0
+        if self.experiment_type == 2:
+            x_mm = xx * 100.0
+            sin_theta = x_mm / 1000.0
+            slit_spacing_nm = max(float(self.slit_spacing), 1e-6) * 1000.0
+            slit_width_nm = max(float(self.slit_width), 1e-6) * 1000.0
 
-        interference_phase = np.pi * slit_spacing_nm * sin_theta / wavelength
-        interference = np.cos(interference_phase) ** 2
+            interference_phase = np.pi * slit_spacing_nm * sin_theta / wavelength
+            interference = np.cos(interference_phase) ** 2
 
-        diffraction_phase = np.pi * slit_width_nm * sin_theta / wavelength
-        sinc_value = np.ones_like(diffraction_phase)
-        mask = np.abs(diffraction_phase) > 1e-4
-        sinc_value[mask] = np.sin(diffraction_phase[mask]) / diffraction_phase[mask]
-        diffraction = sinc_value ** 2
-        return interference * diffraction
+            diffraction_phase = np.pi * slit_width_nm * sin_theta / wavelength
+            sinc_value = np.ones_like(diffraction_phase)
+            mask = np.abs(diffraction_phase) > 1e-4
+            sinc_value[mask] = np.sin(diffraction_phase[mask]) / diffraction_phase[mask]
+            diffraction = sinc_value ** 2
+            return interference * diffraction
+
+        if self.experiment_type == 3:
+            radius2 = xx * xx + yy * yy
+            path_phase = 2.0 * np.pi * float(self.path_difference) / wavelength
+            radial_phase = 32.0 * radius2 * (632.8 / wavelength)
+            return 0.5 + 0.5 * np.cos(path_phase + radial_phase)
+
+        if self.experiment_type == 4:
+            x_mm = xx * 100.0
+            sin_theta = np.clip(x_mm / 1000.0, -0.20, 0.20)
+            slit_spacing_nm = max(float(self.slit_spacing), 1e-6) * 1000.0
+            slit_width_nm = min(max(float(self.slit_width), 1e-6) * 1000.0, slit_spacing_nm * 0.95)
+            grating_count = max(2.0, float(self.grating_count))
+
+            beta = np.pi * slit_spacing_nm * sin_theta / wavelength
+            beta_sin = np.sin(beta)
+            interference = np.ones_like(beta)
+            beta_mask = np.abs(beta_sin) > 1e-5
+            interference[beta_mask] = (
+                np.sin(grating_count * beta[beta_mask]) / (grating_count * beta_sin[beta_mask])
+            ) ** 2
+
+            alpha = np.pi * slit_width_nm * sin_theta / wavelength
+            envelope = np.ones_like(alpha)
+            alpha_mask = np.abs(alpha) > 1e-5
+            envelope[alpha_mask] = (np.sin(alpha[alpha_mask]) / alpha[alpha_mask]) ** 2
+            return interference * envelope
+
+        return np.zeros_like(xx)
 
     def _draw_overlay(self, painter):
         painter.setPen(QPen(QColor(255, 255, 255, 55), 1))
@@ -536,6 +588,8 @@ class SimulationModelWidget(QWidget):
         0: "牛顿环实验模型",
         1: "劈尖干涉实验模型",
         2: "双缝干涉实验模型",
+        3: "迈克尔逊干涉仪模型",
+        4: "光栅衍射实验模型",
     }
 
     def __init__(self, parent=None):
@@ -550,6 +604,10 @@ class SimulationModelWidget(QWidget):
         self.angle = 0.001
         self.slit_width = 10.0
         self.slit_spacing = 50.0
+        self.path_difference = 800.0
+        self.mirror_tilt = 0.0
+        self.grating_count = 30.0
+        self._model_image_cache = {}
 
     def update_parameters(self, experiment_type, wavelength, scale=None, **kwargs):
         self.experiment_type = experiment_type
@@ -566,6 +624,13 @@ class SimulationModelWidget(QWidget):
         elif experiment_type == 2:
             self.slit_width = kwargs.get('slit_width', self.slit_width)
             self.slit_spacing = kwargs.get('slit_spacing', self.slit_spacing)
+        elif experiment_type == 3:
+            self.path_difference = kwargs.get('path_difference', self.path_difference)
+            self.mirror_tilt = 0.0
+        elif experiment_type == 4:
+            self.slit_width = kwargs.get('slit_width', self.slit_width)
+            self.slit_spacing = kwargs.get('slit_spacing', self.slit_spacing)
+            self.grating_count = kwargs.get('grating_count', self.grating_count)
 
         self.update()
 
@@ -591,12 +656,19 @@ class SimulationModelWidget(QWidget):
             self._draw_newton_rings_model(painter, diagram_rect)
         elif self.experiment_type == 1:
             self._draw_wedge_model(painter, diagram_rect)
-        else:
+        elif self.experiment_type == 2:
             self._draw_double_slit_model(painter, diagram_rect)
+        elif self.experiment_type == 3:
+            self._draw_michelson_model(painter, diagram_rect)
+        elif self.experiment_type == 4:
+            self._draw_grating_model(painter, diagram_rect)
 
         painter.end()
 
     def _draw_newton_rings_model(self, painter, rect):
+        if self._draw_model_asset(painter, rect, NEWTON_RINGS_MODEL_IMAGE):
+            return
+
         light_color = self._qt_color_from_wavelength(self.wavelength, 230)
         outline_pen = QPen(QColor('#202a38'), 2.0)
         thin_pen = QPen(QColor('#7f91a6'), 1.1, Qt.PenStyle.DashLine)
@@ -724,6 +796,9 @@ class SimulationModelWidget(QWidget):
         )
 
     def _draw_wedge_model(self, painter, rect):
+        if self._draw_model_asset(painter, rect, WEDGE_MODEL_IMAGE):
+            return
+
         light_color = self._qt_color_from_wavelength(self.wavelength, 230)
         outline_pen = QPen(QColor('#202a38'), 2.0)
         label_font = QFont()
@@ -811,6 +886,9 @@ class SimulationModelWidget(QWidget):
         )
 
     def _draw_double_slit_model(self, painter, rect):
+        if self._draw_model_asset(painter, rect, DOUBLE_SLIT_MODEL_IMAGE):
+            return
+
         light_color = self._qt_color_from_wavelength(self.wavelength, 235)
         outline_pen = QPen(QColor('#202a38'), 2.0)
         label_font = QFont()
@@ -913,6 +991,244 @@ class SimulationModelWidget(QWidget):
                 ("d", f"{self.slit_spacing:.1f} μm"),
             ],
         )
+
+    def _draw_michelson_model(self, painter, rect):
+        if self._draw_model_asset(painter, rect, MICHELSON_MODEL_IMAGE):
+            return
+
+        light_color = self._qt_color_from_wavelength(self.wavelength, 235)
+        outline_pen = QPen(QColor('#202a38'), 2.0)
+        label_font = QFont()
+        label_font.setPointSize(10)
+        panel_width = 158.0
+        panel_gap = 24.0
+        diagram_right = rect.right() - (panel_width + panel_gap)
+        center_y = rect.center().y() + 8
+        source_x = rect.left() + 34
+        splitter_x = rect.left() + rect.width() * 0.38
+        mirror_x = diagram_right - 8
+        mirror_y = rect.top() + 30
+        screen_y = rect.bottom() - 18
+
+        painter.setPen(outline_pen)
+        mirror_tilt_px = 0.0
+        painter.drawLine(
+            QPointF(mirror_x, center_y - 34 - mirror_tilt_px),
+            QPointF(mirror_x + 10, center_y + 34 + mirror_tilt_px),
+        )
+        painter.drawLine(
+            QPointF(splitter_x - 36, mirror_y),
+            QPointF(splitter_x + 36, mirror_y + 8),
+        )
+
+        beam_splitter = QPainterPath(QPointF(splitter_x - 18, center_y + 18))
+        beam_splitter.lineTo(QPointF(splitter_x + 18, center_y - 18))
+        painter.setPen(QPen(QColor('#5c7088'), 3.0))
+        painter.drawPath(beam_splitter)
+
+        source_rect = QRectF(source_x - 10, center_y - 10, 20, 20)
+        painter.setPen(QPen(QColor('#32465a'), 1.5))
+        painter.setBrush(QColor(light_color.red(), light_color.green(), light_color.blue(), 60))
+        painter.drawEllipse(source_rect)
+
+        self._draw_arrow(
+            painter,
+            QPointF(source_x + 12, center_y),
+            QPointF(splitter_x - 22, center_y),
+            light_color,
+            width=2.4,
+            head_size=8.0,
+        )
+        self._draw_arrow(
+            painter,
+            QPointF(splitter_x + 16, center_y),
+            QPointF(mirror_x - 16, center_y),
+            light_color,
+            width=2.0,
+            head_size=7.0,
+        )
+        self._draw_arrow(
+            painter,
+            QPointF(splitter_x, center_y - 16),
+            QPointF(splitter_x, mirror_y + 18),
+            light_color,
+            width=2.0,
+            head_size=7.0,
+        )
+
+        painter.setPen(QPen(QColor(light_color.red(), light_color.green(), light_color.blue(), 120), 1.6, Qt.PenStyle.DashLine))
+        painter.drawLine(QPointF(mirror_x - 16, center_y), QPointF(splitter_x + 14, center_y))
+        painter.drawLine(QPointF(splitter_x, mirror_y + 18), QPointF(splitter_x, center_y - 14))
+
+        self._draw_arrow(
+            painter,
+            QPointF(splitter_x, center_y + 18),
+            QPointF(splitter_x, screen_y - 16),
+            QColor(light_color.red(), light_color.green(), light_color.blue(), 210),
+            width=2.0,
+            head_size=7.0,
+        )
+
+        screen_rect = QRectF(splitter_x - 42, screen_y - 8, 84, 16)
+        painter.setPen(QPen(QColor('#33475b'), 1.5))
+        painter.setBrush(QColor('#eef4fb'))
+        painter.drawRoundedRect(screen_rect, 5, 5)
+        painter.setPen(QPen(light_color, 1.2))
+        for radius in (5, 10, 15, 20):
+            painter.drawEllipse(QPointF(splitter_x, screen_y), radius, radius * 0.22)
+
+        self._draw_arrow(
+            painter,
+            QPointF(splitter_x + 28, center_y),
+            QPointF(mirror_x - 28, center_y),
+            QColor('#34495e'),
+            width=1.4,
+            head_size=4.8,
+            both_ends=True,
+        )
+
+        painter.setFont(label_font)
+        painter.setPen(QColor('#1f2733'))
+        painter.drawText(QPointF(source_x - 4, center_y - 16), "S")
+        painter.drawText(QPointF(splitter_x + 12, center_y + 30), "分束镜")
+        painter.drawText(QPointF(mirror_x - 6, center_y - 42), "M1")
+        painter.drawText(QPointF(splitter_x + 40, mirror_y + 3), "M2")
+        painter.drawText(QPointF(splitter_x + 48, screen_y + 4), "屏")
+        painter.drawText(QPointF((splitter_x + mirror_x) / 2.0 - 8, center_y - 8), "Δ")
+
+        self._draw_parameter_panel(
+            painter,
+            QRectF(rect.right() - panel_width, rect.top() + 6, panel_width, 76),
+            [
+                ("λ", f"{self.wavelength:.1f} nm"),
+                ("Δ", f"{self.path_difference:.1f} nm"),
+            ],
+        )
+
+    def _draw_grating_model(self, painter, rect):
+        if self._draw_model_asset(painter, rect, GRATING_MODEL_IMAGE):
+            return
+
+        light_color = self._qt_color_from_wavelength(self.wavelength, 235)
+        outline_pen = QPen(QColor('#202a38'), 2.0)
+        label_font = QFont()
+        label_font.setPointSize(10)
+        panel_width = 146.0
+        panel_gap = 24.0
+        source_x = rect.left() + 34
+        lens_x = rect.left() + rect.width() * 0.25
+        grating_x = rect.left() + rect.width() * 0.43
+        screen_x = rect.right() - (panel_width + panel_gap)
+        center_y = rect.center().y()
+
+        painter.setPen(outline_pen)
+        painter.drawEllipse(QRectF(lens_x - 8, center_y - 42, 16, 84))
+        painter.drawLine(QPointF(grating_x, rect.top() + 12), QPointF(grating_x, rect.bottom() - 12))
+        painter.drawLine(QPointF(screen_x, rect.top() + 8), QPointF(screen_x, rect.bottom() - 8))
+
+        visible_slits = int(self._clamp(round(self.grating_count / 8.0), 5, 15))
+        if visible_slits % 2 == 0:
+            visible_slits += 1
+        slit_step = self._clamp(7.0 + (self.slit_spacing - 10.0) * 0.035, 7.0, 13.0)
+        start_y = center_y - (visible_slits - 1) * slit_step / 2.0
+        painter.setPen(QPen(QColor('#fbfdff'), 5))
+        for index in range(visible_slits):
+            y_pos = start_y + index * slit_step
+            painter.drawLine(QPointF(grating_x, y_pos - 2.0), QPointF(grating_x, y_pos + 2.0))
+
+        source_rect = QRectF(source_x - 10, center_y - 10, 20, 20)
+        painter.setPen(QPen(QColor('#32465a'), 1.5))
+        painter.setBrush(QColor(light_color.red(), light_color.green(), light_color.blue(), 60))
+        painter.drawEllipse(source_rect)
+        self._draw_arrow(
+            painter,
+            QPointF(source_x + 12, center_y),
+            QPointF(lens_x - 14, center_y),
+            light_color,
+            width=2.4,
+            head_size=8.0,
+        )
+
+        painter.setPen(QPen(QColor(light_color.red(), light_color.green(), light_color.blue(), 130), 1.4))
+        for offset in (-20, 0, 20):
+            painter.drawLine(QPointF(lens_x + 10, center_y + offset), QPointF(grating_x - 10, center_y + offset))
+
+        order_gap = self._clamp(380.0 * self.wavelength / max(self.slit_spacing * 1000.0, 1.0), 12.0, 30.0)
+        max_order = 3
+        for order in range(-max_order, max_order + 1):
+            spot_y = center_y - order * order_gap
+            if spot_y < rect.top() + 16 or spot_y > rect.bottom() - 16:
+                continue
+            alpha = int(self._clamp(230 - abs(order) * 42, 70, 230))
+            beam_color = QColor(light_color.red(), light_color.green(), light_color.blue(), max(55, alpha - 55))
+            self._draw_arrow(
+                painter,
+                QPointF(grating_x + 8, center_y),
+                QPointF(screen_x - 10, spot_y),
+                beam_color,
+                width=1.3 if order else 2.0,
+                head_size=5.5,
+            )
+            painter.setPen(QPen(Qt.PenStyle.NoPen))
+            painter.setBrush(QColor(light_color.red(), light_color.green(), light_color.blue(), alpha))
+            spot_height = 8.0 if order == 0 else 5.6
+            painter.drawRoundedRect(QRectF(screen_x - 8, spot_y - spot_height / 2.0, 16, spot_height), 3, 3)
+
+        self._draw_arrow(
+            painter,
+            QPointF(grating_x + 18, center_y - slit_step / 2.0),
+            QPointF(grating_x + 18, center_y + slit_step / 2.0),
+            QColor('#34495e'),
+            width=1.4,
+            head_size=4.8,
+            both_ends=True,
+        )
+
+        painter.setFont(label_font)
+        painter.setPen(QColor('#1f2733'))
+        painter.drawText(QPointF(source_x - 4, center_y - 16), "S")
+        painter.drawText(QPointF(lens_x - 16, rect.top() + 15), "准直透镜")
+        painter.drawText(QPointF(grating_x + 24, center_y + 4), "d")
+        painter.drawText(QPointF(screen_x + 12, center_y + 4), "m=0")
+        painter.drawText(QPointF(rect.left() + 22, rect.top() + 14), "单色光")
+
+        self._draw_parameter_panel(
+            painter,
+            QRectF(rect.right() - panel_width, rect.top() + 6, panel_width, 92),
+            [
+                ("λ", f"{self.wavelength:.1f} nm"),
+                ("a", f"{self.slit_width:.1f} μm"),
+                ("d", f"{self.slit_spacing:.1f} μm"),
+                ("N", f"{self.grating_count:.0f} 条"),
+            ],
+        )
+
+    def _draw_model_asset(self, painter, rect, image_path):
+        cache_key = str(image_path)
+        image = self._model_image_cache.get(cache_key)
+        if image is None:
+            image = QImage(cache_key)
+            self._model_image_cache[cache_key] = image
+        if image.isNull():
+            return False
+
+        max_width = rect.width() * 1.02
+        max_height = rect.height() * 1.07
+        scale = min(max_width / image.width(), max_height / image.height())
+        target_width = image.width() * scale
+        target_height = image.height() * scale
+        target_rect = QRectF(
+            rect.center().x() - target_width / 2.0,
+            rect.center().y() - target_height / 2.0,
+            target_width,
+            target_height,
+        )
+
+        previous_hint = painter.testRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
+        painter.drawImage(target_rect, image)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, previous_hint)
+        return True
 
     def _draw_model_title(self, painter, rect, title):
         font = QFont()
@@ -1117,15 +1433,15 @@ class VirtualLabTab(QWidget):
         self.angle_layout.addWidget(angle_label)
         
         self.angle_slider = QSlider(Qt.Orientation.Horizontal)
-        self.angle_slider.setMinimum(1)  # 0.01 度
-        self.angle_slider.setMaximum(1000)  # 10 度
+        self.angle_slider.setMinimum(0)  # 0 度
+        self.angle_slider.setMaximum(100)  # 0.1 度
         self.angle_slider.setValue(57)  # 约 0.057 度
         self.angle_slider.valueChanged.connect(self.on_parameter_changed)
         self.angle_layout.addWidget(self.angle_slider)
         
         self.angle_spinbox = QDoubleSpinBox()
-        self.angle_spinbox.setMinimum(0.01)
-        self.angle_spinbox.setMaximum(10.0)
+        self.angle_spinbox.setMinimum(0.0)
+        self.angle_spinbox.setMaximum(0.1)
         self.angle_spinbox.setValue(0.057)
         self.angle_spinbox.setDecimals(3)
         self.angle_spinbox.setSuffix(" °")

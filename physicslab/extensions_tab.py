@@ -1,11 +1,13 @@
+from pathlib import Path
+
+import matplotlib.image as mpimg
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
-from matplotlib.patches import Rectangle
 from scipy.signal import find_peaks, sawtooth, square
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
     QComboBox,
@@ -26,12 +28,17 @@ from PyQt6.QtWidgets import (
 from .widgets import SliderSpinBox
 
 
+ASSET_DIR = Path(__file__).resolve().parent / "assets"
+DOUBLE_SLIT_MODEL_IMAGE = ASSET_DIR / "double_slit_theory_model.png"
+PHOTOELECTRIC_MODEL_IMAGE = ASSET_DIR / "photoelectric_theory_model.png"
+
 plt.rcParams["font.sans-serif"] = ["SimHei", "Microsoft YaHei", "Arial Unicode MS", "DejaVu Sans"]
 plt.rcParams["axes.unicode_minus"] = False
 
 
 MODULE_FOURIER = "振动频谱分析 / 傅里叶变换实验室"
 MODULE_QUANTUM = "量子干涉实验室"
+MODULE_PHOTOELECTRIC = "光电效应实验室"
 
 MODE_SINE = "快速傅里叶：简谐振动"
 MODE_UNDER_DAMPED = "阻尼振动：欠阻尼"
@@ -44,7 +51,7 @@ MODE_GAUSSIAN = "高斯脉冲"
 MODE_BEAT = "拍振"
 
 MODE_DOUBLE_SLIT = "量子双缝干涉"
-MODE_MACH_ZEHNDER = "Mach-Zehnder 单光子干涉仪"
+MODE_PHOTOELECTRIC = "光电效应方程与伏安特性"
 
 FOURIER_MODES = [
     MODE_SINE,
@@ -57,7 +64,8 @@ FOURIER_MODES = [
     MODE_GAUSSIAN,
     MODE_BEAT,
 ]
-QUANTUM_MODES = [MODE_DOUBLE_SLIT, MODE_MACH_ZEHNDER]
+QUANTUM_MODES = [MODE_DOUBLE_SLIT]
+PHOTOELECTRIC_MODES = [MODE_PHOTOELECTRIC]
 DAMPING_MODES = {MODE_UNDER_DAMPED, MODE_CRITICAL_DAMPED, MODE_OVER_DAMPED}
 
 
@@ -97,6 +105,26 @@ class ExtensionCanvas(FigureCanvas):
     def _finish(self):
         self.fig.subplots_adjust(left=0.07, right=0.985, bottom=0.075, top=0.94, hspace=0.36, wspace=0.26)
         self.draw_idle()
+
+    def _show_model_image(self, ax, image_path, title):
+        ax.set_facecolor("#ffffff")
+        ax.set_axis_off()
+        ax.set_title(title, fontsize=12, color="#0f172a", pad=4)
+        if image_path.exists():
+            image = mpimg.imread(str(image_path))
+            ax.imshow(image)
+            ax.set_anchor("C")
+        else:
+            ax.text(
+                0.5,
+                0.5,
+                "理论模型图资源缺失",
+                transform=ax.transAxes,
+                ha="center",
+                va="center",
+                fontsize=12,
+                color="#b91c1c",
+            )
 
     def plot_fourier(self, result):
         self._reset_axes()
@@ -176,8 +204,26 @@ class ExtensionCanvas(FigureCanvas):
         self._finish()
 
     def plot_double_slit(self, result):
-        self._reset_axes()
-        ax_prob, ax_hits, ax_amp, ax_comp = self.axes.flat
+        self.fig.clear()
+        grid = self.fig.add_gridspec(
+            2,
+            3,
+            height_ratios=[1.35, 1.0],
+            left=0.055,
+            right=0.985,
+            bottom=0.075,
+            top=0.955,
+            hspace=0.34,
+            wspace=0.30,
+        )
+        ax_model = self.fig.add_subplot(grid[0, :])
+        ax_prob = self.fig.add_subplot(grid[1, 0])
+        ax_hits = self.fig.add_subplot(grid[1, 1])
+        ax_amp = self.fig.add_subplot(grid[1, 2])
+        self.axes = np.asarray([ax_model, ax_prob, ax_hits, ax_amp], dtype=object)
+        self._show_model_image(ax_model, DOUBLE_SLIT_MODEL_IMAGE, "实验原理理论模型图")
+        for ax in (ax_prob, ax_hits, ax_amp):
+            self._style_axis(ax)
 
         x_mm = result["x"] * 1000.0
         probability = result["probability"]
@@ -185,8 +231,6 @@ class ExtensionCanvas(FigureCanvas):
         hits_mm = result["hits"] * 1000.0
         y_hits = result["hit_rows"]
         psi = result["psi"]
-        visibility = result["visibility"]
-        distinguishability = result["distinguishability"]
 
         probability_scale = max(float(np.nanmax(probability)), 1e-12)
         envelope_scale = max(float(np.nanmax(envelope)), 1e-12)
@@ -211,93 +255,91 @@ class ExtensionCanvas(FigureCanvas):
         ax_amp.set_ylabel("Amplitude", color="#334155")
         ax_amp.legend(loc="upper right", fontsize=8, framealpha=0.92)
 
-        labels = ["V", "D", "V^2 + D^2"]
-        values = [visibility, distinguishability, visibility ** 2 + distinguishability ** 2]
-        colors = ["#2563eb", "#f59e0b", "#10b981" if values[-1] <= 1.0 else "#dc2626"]
-        ax_comp.bar(labels, values, color=colors, width=0.58)
-        ax_comp.axhline(1.0, color="#64748b", linewidth=1.0, linestyle="--")
-        ax_comp.set_ylim(0.0, max(1.08, values[-1] * 1.15))
-        ax_comp.set_title("互补关系读数", fontsize=11, color="#0f172a")
-        ax_comp.set_ylabel("Value", color="#334155")
-        for index, value in enumerate(values):
-            ax_comp.text(index, value + 0.025, f"{value:.3f}", ha="center", color="#0f172a", fontsize=9)
+        self.draw_idle()
 
-        self._finish()
+    def plot_photoelectric(self, result):
+        self.fig.clear()
+        grid = self.fig.add_gridspec(
+            2,
+            3,
+            height_ratios=[1.25, 1.0],
+            left=0.055,
+            right=0.985,
+            bottom=0.075,
+            top=0.955,
+            hspace=0.34,
+            wspace=0.30,
+        )
+        ax_model = self.fig.add_subplot(grid[0, :])
+        ax_u0 = self.fig.add_subplot(grid[1, 0])
+        ax_is = self.fig.add_subplot(grid[1, 1])
+        ax_iv = self.fig.add_subplot(grid[1, 2])
+        self.axes = np.asarray([ax_model, ax_u0, ax_is, ax_iv], dtype=object)
+        self._show_model_image(ax_model, PHOTOELECTRIC_MODEL_IMAGE, "实验原理理论模型图")
+        for ax in (ax_u0, ax_is, ax_iv):
+            self._style_axis(ax)
 
-    def plot_mach_zehnder(self, result):
-        self._reset_axes()
-        ax_scheme, ax_curve, ax_counts, ax_phase = self.axes.flat
+        frequency = float(result["frequency_thz"])
+        work_function = float(result["work_function_ev"])
+        stopping_voltage = float(result["stopping_voltage"])
+        intensity = float(result["intensity"])
+        saturation_current = float(result["saturation_current_ua"])
+        selected_voltage = float(result["voltage"])
+        selected_current = float(result["current_at_voltage"])
+        h_ev_per_thz = 4.135667696e-3
 
-        phase_grid = result["phase_grid"]
-        curve_p0 = result["curve_p0"]
-        curve_p1 = result["curve_p1"]
-        phase = result["phase"]
-        p0 = result["p0"]
-        p1 = result["p1"]
-        clicks = result["clicks"]
-        amplitudes = result["amplitudes"]
+        cutoff = float(result["cutoff_frequency_thz"])
+        freq_left = max(50.0, min(cutoff, frequency) * 0.55)
+        freq_right = max(1200.0, frequency * 1.20, cutoff * 1.65)
+        frequency_scan = np.linspace(freq_left, freq_right, 560)
+        u0_scan = np.maximum(h_ev_per_thz * frequency_scan - work_function, 0.0)
+        u0_top = max(float(np.max(u0_scan)) * 1.12, stopping_voltage * 1.25, 0.8)
+        ax_u0.plot(frequency_scan, u0_scan, color="#1d4ed8", linewidth=1.7, label="$U_0=h\\nu-W_0$")
+        ax_u0.scatter([frequency], [stopping_voltage], color="#dc2626", s=42, zorder=5, label="当前条件")
+        ax_u0.plot([frequency, frequency], [0.0, stopping_voltage], color="#dc2626", linestyle="--", linewidth=1.1)
+        ax_u0.plot([freq_left, frequency], [stopping_voltage, stopping_voltage], color="#dc2626", linestyle="--", linewidth=1.1)
+        ax_u0.axvline(cutoff, color="#64748b", linestyle=":", linewidth=1.0, label="截止频率")
+        ax_u0.set_xlim(freq_left, freq_right)
+        ax_u0.set_ylim(0.0, u0_top)
+        ax_u0.set_title("遏止电压与入射频率", fontsize=11, color="#0f172a")
+        ax_u0.set_xlabel("入射频率 ν (THz)", color="#334155")
+        ax_u0.set_ylabel("遏止电压 U0 (V)", color="#334155")
+        ax_u0.legend(loc="upper left", fontsize=8, framealpha=0.9)
 
-        ax_scheme.set_title("Mach-Zehnder 单光子干涉仪", fontsize=11, color="#0f172a")
-        ax_scheme.set_xlim(0, 10)
-        ax_scheme.set_ylim(0, 7)
-        ax_scheme.set_aspect("equal", adjustable="box")
-        ax_scheme.axis("off")
-        ax_scheme.plot([1, 3], [3.5, 3.5], color="#2563eb", linewidth=2)
-        ax_scheme.plot([3, 6.8], [3.5, 5.6], color="#2563eb", linewidth=2)
-        ax_scheme.plot([3, 6.8], [3.5, 1.4], color="#2563eb", linewidth=2)
-        ax_scheme.plot([6.8, 8.8], [5.6, 4.5], color="#2563eb", linewidth=2)
-        ax_scheme.plot([6.8, 8.8], [1.4, 2.5], color="#2563eb", linewidth=2)
-        ax_scheme.plot([2.75, 3.25], [3.05, 3.95], color="#0f172a", linewidth=4)
-        ax_scheme.plot([6.55, 7.05], [5.15, 6.05], color="#0f172a", linewidth=4)
-        ax_scheme.text(2.38, 2.65, "BS1", color="#0f172a", fontsize=9)
-        ax_scheme.text(6.18, 4.75, "BS2", color="#0f172a", fontsize=9)
-        ax_scheme.add_patch(Rectangle((4.75, 4.9), 0.86, 0.42, color="#fde68a", ec="#92400e"))
-        ax_scheme.text(4.58, 5.46, f"φ={phase:.2f}", color="#92400e", fontsize=9)
-        ax_scheme.scatter([9.0, 9.0], [4.5, 2.5], s=160, color=["#10b981", "#ef4444"], zorder=4)
-        ax_scheme.text(9.25, 4.38, f"D0 {p0:.3f}", color="#047857", fontsize=9)
-        ax_scheme.text(9.25, 2.38, f"D1 {p1:.3f}", color="#991b1b", fontsize=9)
-        ax_scheme.text(0.65, 3.34, "|1>", color="#2563eb", fontsize=10)
+        intensity_scan = np.linspace(0.0, 10.0, 420)
+        current_per_intensity = 3.5 if result["emission"] else 0.0
+        saturation_scan = current_per_intensity * intensity_scan
+        is_top = max(float(np.max(saturation_scan)) * 1.12, saturation_current * 1.25, 1.0)
+        ax_is.plot(intensity_scan, saturation_scan, color="#2563eb", linewidth=1.7, label="$I_s \\propto$ 光强")
+        ax_is.scatter([intensity], [saturation_current], color="#dc2626", s=42, zorder=5, label="当前条件")
+        ax_is.plot([intensity, intensity], [0.0, saturation_current], color="#dc2626", linestyle="--", linewidth=1.1)
+        ax_is.plot([0.0, intensity], [saturation_current, saturation_current], color="#dc2626", linestyle="--", linewidth=1.1)
+        if not result["emission"]:
+            ax_is.text(0.5, 0.62, "未达到截止频率", transform=ax_is.transAxes, ha="center", color="#b91c1c", fontsize=10)
+        ax_is.set_xlim(0.0, 10.0)
+        ax_is.set_ylim(0.0, is_top)
+        ax_is.set_title("光强与饱和光电流", fontsize=11, color="#0f172a")
+        ax_is.set_xlabel("光强 I", color="#334155")
+        ax_is.set_ylabel("饱和光电流 Is (μA)", color="#334155")
+        ax_is.legend(loc="upper left", fontsize=8, framealpha=0.9)
 
-        ax_curve.plot(phase_grid, curve_p0, color="#10b981", linewidth=1.5, label="P(D0)")
-        ax_curve.plot(phase_grid, curve_p1, color="#ef4444", linewidth=1.5, label="P(D1)")
-        ax_curve.scatter([phase], [p0], color="#047857", s=34, zorder=4)
-        ax_curve.scatter([phase], [p1], color="#991b1b", s=34, zorder=4)
-        ax_curve.set_title("探测概率随相位变化", fontsize=11, color="#0f172a")
-        ax_curve.set_xlabel("Phase φ (rad)", color="#334155")
-        ax_curve.set_ylabel("Probability", color="#334155")
-        ax_curve.set_ylim(-0.03, 1.03)
-        ax_curve.legend(loc="upper right", fontsize=8, framealpha=0.92)
+        voltage = result["voltage_grid"]
+        current = result["current_grid"]
+        iv_top = max(float(np.max(current)) * 1.16 if len(current) else 0.0, selected_current * 1.25, 1.0)
+        ax_iv.plot(voltage, current, color="#1d4ed8", linewidth=1.7, label="伏安特性")
+        ax_iv.scatter([selected_voltage], [selected_current], color="#dc2626", s=42, zorder=5, label="当前工作点")
+        ax_iv.plot([selected_voltage, selected_voltage], [0.0, selected_current], color="#dc2626", linestyle="--", linewidth=1.1)
+        ax_iv.plot([float(voltage[0]), selected_voltage], [selected_current, selected_current], color="#dc2626", linestyle="--", linewidth=1.1)
+        if result["emission"]:
+            ax_iv.axvline(-stopping_voltage, color="#64748b", linestyle=":", linewidth=1.0, label="遏止电压")
+        ax_iv.set_xlim(float(voltage[0]), float(voltage[-1]))
+        ax_iv.set_ylim(0.0, iv_top)
+        ax_iv.set_title("光电流与外加电压", fontsize=11, color="#0f172a")
+        ax_iv.set_xlabel("外加电压 U (V)", color="#334155")
+        ax_iv.set_ylabel("光电流 I (μA)", color="#334155")
+        ax_iv.legend(loc="lower right", fontsize=8, framealpha=0.9)
 
-        ax_counts.bar(["D0", "D1"], clicks, color=["#10b981", "#ef4444"], width=0.58)
-        ax_counts.set_title("单光子点击统计", fontsize=11, color="#0f172a")
-        ax_counts.set_ylabel("Counts", color="#334155")
-        for index, value in enumerate(clicks):
-            ax_counts.text(index, value + max(clicks) * 0.025, str(int(value)), ha="center", color="#0f172a", fontsize=10)
-
-        ax_phase.set_title("输出概率振幅", fontsize=11, color="#0f172a")
-        ax_phase.axhline(0, color="#cbd5e1", linewidth=1)
-        ax_phase.axvline(0, color="#cbd5e1", linewidth=1)
-        ax_phase.set_aspect("equal", adjustable="box")
-        ax_phase.set_xlim(-1.1, 1.1)
-        ax_phase.set_ylim(-1.1, 1.1)
-        phasor_colors = ["#10b981", "#ef4444"]
-        for label, amp, color in zip(["D0", "D1"], amplitudes, phasor_colors):
-            ax_phase.arrow(
-                0,
-                0,
-                float(np.real(amp)),
-                float(np.imag(amp)),
-                width=0.012,
-                head_width=0.065,
-                length_includes_head=True,
-                color=color,
-                alpha=0.88,
-            )
-            ax_phase.text(float(np.real(amp)) * 1.08, float(np.imag(amp)) * 1.08, label, color=color, fontsize=9)
-        ax_phase.set_xlabel("Re", color="#334155")
-        ax_phase.set_ylabel("Im", color="#334155")
-
-        self._finish()
+        self.draw_idle()
 
 
 class ExtensionsTab(QWidget):
@@ -305,6 +347,11 @@ class ExtensionsTab(QWidget):
         super().__init__()
         self.controls = {}
         self.control_rows = {}
+        self._suspend_auto_update = False
+        self._analysis_update_timer = QTimer(self)
+        self._analysis_update_timer.setSingleShot(True)
+        self._analysis_update_timer.setInterval(120)
+        self._analysis_update_timer.timeout.connect(self.update_analysis)
         self.init_ui()
         self.on_module_changed(self.module_combo.currentText())
 
@@ -335,7 +382,7 @@ class ExtensionsTab(QWidget):
         module_layout.setContentsMargins(12, 18, 12, 12)
         module_layout.setSpacing(8)
         self.module_combo = QComboBox()
-        self.module_combo.addItems([MODULE_FOURIER, MODULE_QUANTUM])
+        self.module_combo.addItems([MODULE_FOURIER, MODULE_QUANTUM, MODULE_PHOTOELECTRIC])
         self.module_combo.currentTextChanged.connect(self.on_module_changed)
         module_layout.addWidget(self.module_combo)
         left_layout.addWidget(module_group)
@@ -373,29 +420,27 @@ class ExtensionsTab(QWidget):
         row = self._add_control(param_layout, row, "路径信息 D", "path_info", 0.0, 1.0, 0.15, 0.01, 3, "")
         row = self._add_control(param_layout, row, "粒子数 N", "particle_count", 100.0, 10000.0, 2200.0, 100.0, 0, "")
 
-        row = self._add_control(param_layout, row, "相位差 φ", "mz_phase", 0.0, 2.0 * np.pi, 1.1, 0.05, 4, " rad")
-        row = self._add_control(param_layout, row, "分束器反射率 R", "beam_splitter_r", 0.01, 0.99, 0.5, 0.01, 3, "")
-        row = self._add_control(param_layout, row, "光子数 N", "photon_count", 100.0, 20000.0, 3000.0, 100.0, 0, "")
-        row = self._add_control(param_layout, row, "相位噪声 σφ", "phase_noise", 0.0, 2.0, 0.0, 0.02, 3, " rad")
+        row = self._add_control(param_layout, row, "入射频率 ν", "pe_frequency_thz", 100.0, 1200.0, 650.0, 1.0, 1, " THz")
+        row = self._add_control(param_layout, row, "逸出功 W₀", "pe_work_function_ev", 1.0, 6.0, 2.28, 0.01, 3, " eV")
+        row = self._add_control(param_layout, row, "光强 I", "pe_intensity", 0.1, 10.0, 3.0, 0.1, 2, "")
+        row = self._add_control(param_layout, row, "外加电压 U", "pe_voltage_v", -5.0, 5.0, 0.0, 0.05, 3, " V")
 
         self.window_label = QLabel("窗函数")
         self.window_combo = QComboBox()
         self.window_combo.addItems(["无", "Hann", "Hamming", "Blackman"])
+        self.window_combo.currentTextChanged.connect(self.schedule_analysis_update)
         param_layout.addWidget(self.window_label, row, 0)
         param_layout.addWidget(self.window_combo, row, 1)
 
         left_layout.addWidget(param_group)
 
-        action_group = QGroupBox("分析")
+        action_group = QGroupBox("操作")
         action_layout = QVBoxLayout(action_group)
         action_layout.setContentsMargins(12, 18, 12, 12)
         action_layout.setSpacing(8)
         self.btn_load_sample = QPushButton("加载样例")
-        self.btn_analyze = QPushButton("生成分析图")
         self.btn_load_sample.clicked.connect(self.load_current_sample)
-        self.btn_analyze.clicked.connect(self.update_analysis)
         action_layout.addWidget(self.btn_load_sample)
-        action_layout.addWidget(self.btn_analyze)
         left_layout.addWidget(action_group)
 
         readout_group = QGroupBox("读数")
@@ -469,6 +514,7 @@ class ExtensionsTab(QWidget):
         control.setMinimumHeight(38)
         control.setKeyboardTracking(False)
         control.setAccelerated(True)
+        control.valueChanged.connect(self.schedule_analysis_update)
         layout.addWidget(label, row, 0)
         layout.addWidget(control, row, 1)
         self.controls[name] = control
@@ -484,6 +530,11 @@ class ExtensionsTab(QWidget):
         self.window_label.setVisible(visible)
         self.window_combo.setVisible(visible)
 
+    def schedule_analysis_update(self, *_args):
+        if self._suspend_auto_update:
+            return
+        self._analysis_update_timer.start()
+
     def _current_module(self):
         return self.module_combo.currentText()
 
@@ -491,7 +542,12 @@ class ExtensionsTab(QWidget):
         return self.mode_combo.currentText()
 
     def on_module_changed(self, module):
-        modes = FOURIER_MODES if module == MODULE_FOURIER else QUANTUM_MODES
+        module_modes = {
+            MODULE_FOURIER: FOURIER_MODES,
+            MODULE_QUANTUM: QUANTUM_MODES,
+            MODULE_PHOTOELECTRIC: PHOTOELECTRIC_MODES,
+        }
+        modes = module_modes.get(module, FOURIER_MODES)
         was_blocked = self.mode_combo.blockSignals(True)
         self.mode_combo.clear()
         self.mode_combo.addItems(modes)
@@ -523,7 +579,12 @@ class ExtensionsTab(QWidget):
             "path_info",
             "particle_count",
         }
-        mach_controls = {"mz_phase", "beam_splitter_r", "photon_count", "phase_noise"}
+        photoelectric_controls = {
+            "pe_frequency_thz",
+            "pe_work_function_ev",
+            "pe_intensity",
+            "pe_voltage_v",
+        }
 
         for name in self.controls:
             self._set_control_visible(name, False)
@@ -543,17 +604,21 @@ class ExtensionsTab(QWidget):
             self._set_window_visible(False)
             self.heading_label.setText("量子双缝干涉")
         else:
-            for name in mach_controls:
+            for name in photoelectric_controls:
                 self._set_control_visible(name, True)
             self._set_window_visible(False)
-            self.heading_label.setText("Mach-Zehnder 单光子干涉仪")
+            self.heading_label.setText("光电效应实验室")
 
     def _set_values(self, values):
-        for name, value in values.items():
-            if name == "window":
-                self.window_combo.setCurrentText(value)
-            elif name in self.controls:
-                self.controls[name].setValue(value)
+        self._suspend_auto_update = True
+        try:
+            for name, value in values.items():
+                if name == "window":
+                    self.window_combo.setCurrentText(value)
+                elif name in self.controls:
+                    self.controls[name].setValue(value)
+        finally:
+            self._suspend_auto_update = False
 
     def load_current_sample(self):
         mode = self._current_mode()
@@ -642,11 +707,11 @@ class ExtensionsTab(QWidget):
                 "path_info": 0.15,
                 "particle_count": 2200.0,
             },
-            MODE_MACH_ZEHNDER: {
-                "mz_phase": 1.1,
-                "beam_splitter_r": 0.5,
-                "photon_count": 3000.0,
-                "phase_noise": 0.0,
+            MODE_PHOTOELECTRIC: {
+                "pe_frequency_thz": 650.0,
+                "pe_work_function_ev": 2.28,
+                "pe_intensity": 3.0,
+                "pe_voltage_v": 0.0,
             },
         }
         self._set_values(samples.get(mode, {}))
@@ -946,87 +1011,87 @@ class ExtensionsTab(QWidget):
             ]
         )
 
-    def _mach_probabilities_for_phase(self, phase_values, reflectivity):
-        r = np.sqrt(reflectivity)
-        t = np.sqrt(max(0.0, 1.0 - reflectivity))
-        bs = np.array([[t, 1j * r], [1j * r, t]], dtype=complex)
-        input_state = np.array([1.0 + 0.0j, 0.0 + 0.0j])
+    def _photoelectric_current(self, voltage, stopping_voltage, saturation_current):
+        voltage = np.asarray(voltage, dtype=float)
+        if saturation_current <= 0.0 or stopping_voltage <= 0.0:
+            return np.zeros_like(voltage)
 
-        phase_values = np.asarray(phase_values, dtype=float)
-        p0 = np.zeros_like(phase_values)
-        p1 = np.zeros_like(phase_values)
-        amplitudes = []
-        for index, phase in np.ndenumerate(phase_values):
-            phase_matrix = np.array([[1.0, 0.0], [0.0, np.exp(1j * phase)]], dtype=complex)
-            out = bs @ phase_matrix @ bs @ input_state
-            norm = max(float(np.sum(np.abs(out) ** 2)), 1e-12)
-            p0[index] = float(np.abs(out[0]) ** 2 / norm)
-            p1[index] = float(np.abs(out[1]) ** 2 / norm)
-            if phase_values.size == 1:
-                amplitudes = [out[0] / np.sqrt(norm), out[1] / np.sqrt(norm)]
-        return p0, p1, amplitudes
+        collection_width = 1.6
+        normalized = (voltage + stopping_voltage) / max(stopping_voltage + collection_width, 1e-9)
+        normalized = np.clip(normalized, 0.0, 1.0)
+        return saturation_current * normalized ** 1.35
 
-    def _analyze_mach_zehnder(self):
-        phase = self._control_value("mz_phase")
-        reflectivity = self._control_value("beam_splitter_r")
-        photon_count = int(round(self._control_value("photon_count")))
-        phase_noise = self._control_value("phase_noise")
+    def _analyze_photoelectric(self):
+        h_ev_s = 4.135667696e-15
+        c = 299792458.0
 
-        phase_grid = np.linspace(0.0, 2.0 * np.pi, 420)
-        curve_p0, curve_p1, _ = self._mach_probabilities_for_phase(phase_grid, reflectivity)
-        p0_single, p1_single, amplitudes = self._mach_probabilities_for_phase(np.array([phase]), reflectivity)
-        p0 = float(p0_single[0])
-        p1 = float(p1_single[0])
+        frequency_thz = self._control_value("pe_frequency_thz")
+        frequency_hz = frequency_thz * 1e12
+        work_function_ev = self._control_value("pe_work_function_ev")
+        intensity = self._control_value("pe_intensity")
+        voltage = self._control_value("pe_voltage_v")
 
-        rng = np.random.default_rng(20260611)
-        if phase_noise > 1e-9:
-            noisy_phases = phase + rng.normal(0.0, phase_noise, 3200)
-            noisy_p0, noisy_p1, _ = self._mach_probabilities_for_phase(noisy_phases, reflectivity)
-            p0 = float(np.mean(noisy_p0))
-            p1 = float(np.mean(noisy_p1))
+        photon_energy_ev = h_ev_s * frequency_hz
+        kinetic_energy_ev = max(photon_energy_ev - work_function_ev, 0.0)
+        emission = kinetic_energy_ev > 1e-9
+        stopping_voltage = kinetic_energy_ev
+        cutoff_frequency_thz = work_function_ev / h_ev_s / 1e12
+        wavelength_nm = c / max(frequency_hz, 1e-12) * 1e9
+        saturation_current_ua = 3.5 * intensity if emission else 0.0
 
-        total = max(p0 + p1, 1e-12)
-        p0 /= total
-        p1 /= total
-        clicks = rng.multinomial(max(1, photon_count), [p0, p1])
+        left_voltage = -max(5.0, stopping_voltage + 0.8)
+        right_voltage = 5.0
+        voltage_grid = np.linspace(left_voltage, right_voltage, 640)
+        current_grid = self._photoelectric_current(voltage_grid, stopping_voltage, saturation_current_ua)
+        current_at_voltage = float(self._photoelectric_current(np.array([voltage]), stopping_voltage, saturation_current_ua)[0])
 
-        ideal_visibility = 2.0 * reflectivity * (1.0 - reflectivity) / max(
-            reflectivity ** 2 + (1.0 - reflectivity) ** 2,
-            1e-12,
-        )
-        visibility = ideal_visibility * np.exp(-0.5 * phase_noise ** 2)
+        scan_left = max(80.0, cutoff_frequency_thz * 0.45)
+        scan_right = max(1200.0, frequency_thz * 1.16, cutoff_frequency_thz * 1.65)
+        frequency_scan_thz = np.linspace(scan_left, scan_right, 720)
+        kinetic_scan_ev = np.maximum(h_ev_s * frequency_scan_thz * 1e12 - work_function_ev, 0.0)
 
         return {
-            "phase_grid": phase_grid,
-            "curve_p0": curve_p0,
-            "curve_p1": curve_p1,
-            "phase": phase,
-            "p0": p0,
-            "p1": p1,
-            "clicks": clicks,
-            "amplitudes": amplitudes,
-            "reflectivity": reflectivity,
-            "photon_count": photon_count,
-            "phase_noise": phase_noise,
-            "visibility": visibility,
+            "frequency_thz": frequency_thz,
+            "frequency_hz": frequency_hz,
+            "wavelength_nm": wavelength_nm,
+            "work_function_ev": work_function_ev,
+            "intensity": intensity,
+            "voltage": voltage,
+            "photon_energy_ev": photon_energy_ev,
+            "kinetic_energy_ev": kinetic_energy_ev,
+            "emission": emission,
+            "stopping_voltage": stopping_voltage,
+            "cutoff_frequency_thz": cutoff_frequency_thz,
+            "cutoff_wavelength_nm": c / max(cutoff_frequency_thz * 1e12, 1e-12) * 1e9,
+            "saturation_current_ua": saturation_current_ua,
+            "current_at_voltage": current_at_voltage,
+            "voltage_grid": voltage_grid,
+            "current_grid": current_grid,
+            "frequency_scan_thz": frequency_scan_thz,
+            "kinetic_scan_ev": kinetic_scan_ev,
         }
 
-    def _format_mach_readout(self, result):
-        return "\n".join(
-            [
-                "模式：Mach-Zehnder 单光子干涉仪",
-                f"相位差 φ = {result['phase']:.4f} rad",
-                f"分束器反射率 R = {result['reflectivity']:.3f}",
-                f"相位噪声 σφ = {result['phase_noise']:.3f} rad",
-                f"P(D0) = {result['p0']:.5f}",
-                f"P(D1) = {result['p1']:.5f}",
-                f"干涉可见度 V ≈ {result['visibility']:.5f}",
-                f"点击统计：D0 = {int(result['clicks'][0])}，D1 = {int(result['clicks'][1])}",
-            ]
-        )
+    def _format_photoelectric_readout(self, result):
+        status = "已发生光电效应" if result["emission"] else "未发生光电效应"
+        lines = [
+            "模式：光电效应方程与伏安特性",
+            f"入射频率 ν = {result['frequency_thz']:.3f} THz，波长 λ = {result['wavelength_nm']:.3f} nm",
+            f"光子能量 hν = {result['photon_energy_ev']:.5f} eV",
+            f"逸出功 W₀ = {result['work_function_ev']:.5f} eV",
+            f"截止频率 ν0 = {result['cutoff_frequency_thz']:.3f} THz，截止波长 λ0 = {result['cutoff_wavelength_nm']:.3f} nm",
+            f"最大初动能 Kmax = {result['kinetic_energy_ev']:.5f} eV",
+            f"遏止电压 Us = {result['stopping_voltage']:.5f} V",
+            f"饱和光电流 Is ≈ {result['saturation_current_ua']:.5f} μA",
+            f"当前电压 U = {result['voltage']:.3f} V，光电流 I ≈ {result['current_at_voltage']:.5f} μA",
+            f"判据：{status}",
+        ]
+        if not result["emission"]:
+            lines.append("提示：提高入射频率或降低金属逸出功后，光电子才会逸出。")
+        return "\n".join(lines)
 
     def update_analysis(self):
         try:
+            self._analysis_update_timer.stop()
             module = self._current_module()
             mode = self._current_mode()
             self._update_control_visibility()
@@ -1039,9 +1104,9 @@ class ExtensionsTab(QWidget):
                 self.canvas.plot_double_slit(result)
                 self.readout_text.setPlainText(self._format_double_slit_readout(result))
             else:
-                result = self._analyze_mach_zehnder()
-                self.canvas.plot_mach_zehnder(result)
-                self.readout_text.setPlainText(self._format_mach_readout(result))
+                result = self._analyze_photoelectric()
+                self.canvas.plot_photoelectric(result)
+                self.readout_text.setPlainText(self._format_photoelectric_readout(result))
         except Exception as exc:
             self.readout_text.setPlainText(
                 "扩展模块生成失败。\n\n"

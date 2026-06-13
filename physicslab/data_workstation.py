@@ -15,6 +15,7 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QRadioButton,
+    QSizePolicy,
     QSplitter,
     QTableWidget,
     QTableWidgetItem,
@@ -180,6 +181,8 @@ class DataWorkstationTab(QWidget):
 
         # 统计结果显示区
         stats_group = QGroupBox("统计结果")
+        stats_group.setFixedHeight(120)
+        stats_group.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         stats_group.setStyleSheet("""
             QGroupBox {
                 font-weight: bold;
@@ -196,10 +199,25 @@ class DataWorkstationTab(QWidget):
         """)
         stats_layout = QVBoxLayout()
 
-        self.stats_label = QLabel("输入数据后自动计算...")
+        self.stats_label = QTextEdit()
+        self.stats_label.setReadOnly(True)
+        self.stats_label.setPlainText("输入数据后自动计算...")
         self.stats_label.setFont(QFont("Arial", 9))
-        self.stats_label.setStyleSheet("color: #6c757d; line-height: 1.6;")
-        self.stats_label.setWordWrap(True)
+        self.stats_label.setMinimumHeight(80)
+        self.stats_label.setMaximumHeight(80)
+        self.stats_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.stats_label.setStyleSheet(
+            """
+            QTextEdit {
+                background-color: #ffffff;
+                color: #495057;
+                border: 1px solid #d9d9d9;
+                border-radius: 6px;
+                padding: 6px;
+                line-height: 1.5;
+            }
+            """
+        )
         stats_layout.addWidget(self.stats_label)
 
         stats_group.setLayout(stats_layout)
@@ -601,7 +619,7 @@ class DataWorkstationTab(QWidget):
         x_data, y_data = self.get_data_from_table()
 
         if len(y_data) == 0:
-            self.stats_label.setText("暂无数据")
+            self.stats_label.setPlainText("暂无数据")
             return
 
         # 计算统计量
@@ -631,7 +649,7 @@ class DataWorkstationTab(QWidget):
 
         stats_text += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-        self.stats_label.setText(stats_text)
+        self.stats_label.setPlainText(stats_text)
 
     def update_chart(self):
         """根据当前数据和图表类型更新图表"""

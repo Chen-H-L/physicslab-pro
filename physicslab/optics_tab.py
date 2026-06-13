@@ -158,7 +158,7 @@ class OpticsLabTab(QWidget):
         simulation_control_layout.addWidget(sim_experiment_label)
         
         self.sim_experiment_combo = QComboBox()
-        self.sim_experiment_combo.addItems(["牛顿环实验", "劈尖干涉", "双缝干涉"])
+        self.sim_experiment_combo.addItems(["牛顿环实验", "劈尖干涉", "双缝干涉", "迈克尔逊干涉仪", "光栅衍射"])
         self.sim_experiment_combo.currentTextChanged.connect(self.on_sim_experiment_changed)
         simulation_control_layout.addWidget(self.sim_experiment_combo)
         
@@ -197,6 +197,18 @@ class OpticsLabTab(QWidget):
         self.gap_layout.addWidget(self.gap_spinbox)
         
         simulation_control_layout.addLayout(self.gap_layout)
+
+        # 迈克尔逊干涉仪参数：光程差
+        self.path_diff_layout = QHBoxLayout()
+        path_diff_label = QLabel("光程差 Δ (nm):")
+        path_diff_label.setMinimumWidth(100)
+        self.path_diff_layout.addWidget(path_diff_label)
+
+        self.path_diff_spinbox = self._create_slider_spinbox(-50000.0, 50000.0, 800.0, 1.0, 1, " nm")
+        self.path_diff_spinbox.valueChanged.connect(self.on_simulation_parameter_changed)
+        self.path_diff_layout.addWidget(self.path_diff_spinbox)
+
+        simulation_control_layout.addLayout(self.path_diff_layout)
         
         # 视野缩放
         self.scale_layout = QHBoxLayout()
@@ -218,7 +230,7 @@ class OpticsLabTab(QWidget):
         angle_label.setMinimumWidth(100)
         self.angle_layout.addWidget(angle_label)
         
-        self.angle_spinbox = self._create_slider_spinbox(0.01, 10.0, 0.057, 0.001, 3, " °")
+        self.angle_spinbox = self._create_slider_spinbox(0.0, 0.1, 0.057, 0.001, 3, " °")
         self.angle_spinbox.valueChanged.connect(self.on_simulation_parameter_changed)
         self.angle_layout.addWidget(self.angle_spinbox)
         
@@ -247,6 +259,18 @@ class OpticsLabTab(QWidget):
         self.slit_spacing_layout.addWidget(self.slit_spacing_spinbox)
         
         simulation_control_layout.addLayout(self.slit_spacing_layout)
+
+        # 光栅衍射参数：有效缝数
+        self.grating_count_layout = QHBoxLayout()
+        grating_count_label = QLabel("有效缝数 N:")
+        grating_count_label.setMinimumWidth(100)
+        self.grating_count_layout.addWidget(grating_count_label)
+
+        self.grating_count_spinbox = self._create_slider_spinbox(2.0, 200.0, 30.0, 1.0, 0, " 条")
+        self.grating_count_spinbox.valueChanged.connect(self.on_simulation_parameter_changed)
+        self.grating_count_layout.addWidget(self.grating_count_spinbox)
+
+        simulation_control_layout.addLayout(self.grating_count_layout)
         
         self.simulation_control_group.setLayout(simulation_control_layout)
         left_layout.addWidget(self.simulation_control_group)
@@ -333,7 +357,7 @@ class OpticsLabTab(QWidget):
         self.model_group = QGroupBox("实验模型")
         model_layout = QVBoxLayout()
         self.simulation_model_widget = SimulationModelWidget()
-        self.simulation_model_widget.setMinimumSize(420, 220)
+        self.simulation_model_widget.setMinimumSize(420, 320)
         self.simulation_model_widget.setSizePolicy(
             QSizePolicy.Policy.Expanding,
             QSizePolicy.Policy.Fixed,
@@ -386,6 +410,13 @@ class OpticsLabTab(QWidget):
         )
         control.setMinimumHeight(36)
         return control
+
+    def _set_sim_layout_visible(self, layout, visible):
+        for i in range(layout.count()):
+            item = layout.itemAt(i)
+            widget = item.widget()
+            if widget is not None:
+                widget.setVisible(visible)
 
     def on_experiment_changed(self, text):
         """实验类型改变时的回调"""
@@ -498,46 +529,28 @@ class OpticsLabTab(QWidget):
     
     def on_sim_experiment_changed(self, text):
         """仿真实验类型改变时的回调"""
-        # 根据仿真实验类型显示/隐藏相应的参数控件
-        if text == "牛顿环实验":
-            # 显示：波长、曲率半径、间隙距离、视野范围
-            for i in range(self.radius_layout.count()):
-                self.radius_layout.itemAt(i).widget().setVisible(True)
-            for i in range(self.gap_layout.count()):
-                self.gap_layout.itemAt(i).widget().setVisible(True)
-            # 隐藏：夹角、缝宽、缝间距
-            for i in range(self.angle_layout.count()):
-                self.angle_layout.itemAt(i).widget().setVisible(False)
-            for i in range(self.slit_width_layout.count()):
-                self.slit_width_layout.itemAt(i).widget().setVisible(False)
-            for i in range(self.slit_spacing_layout.count()):
-                self.slit_spacing_layout.itemAt(i).widget().setVisible(False)
-        elif text == "劈尖干涉":
-            # 显示：波长、夹角、间隙距离、视野范围
-            for i in range(self.angle_layout.count()):
-                self.angle_layout.itemAt(i).widget().setVisible(True)
-            for i in range(self.gap_layout.count()):
-                self.gap_layout.itemAt(i).widget().setVisible(True)
-            # 隐藏：曲率半径、缝宽、缝间距
-            for i in range(self.radius_layout.count()):
-                self.radius_layout.itemAt(i).widget().setVisible(False)
-            for i in range(self.slit_width_layout.count()):
-                self.slit_width_layout.itemAt(i).widget().setVisible(False)
-            for i in range(self.slit_spacing_layout.count()):
-                self.slit_spacing_layout.itemAt(i).widget().setVisible(False)
-        elif text == "双缝干涉":
-            # 显示：波长、缝宽、缝间距
-            for i in range(self.slit_width_layout.count()):
-                self.slit_width_layout.itemAt(i).widget().setVisible(True)
-            for i in range(self.slit_spacing_layout.count()):
-                self.slit_spacing_layout.itemAt(i).widget().setVisible(True)
-            # 隐藏：曲率半径、间隙距离、夹角、视野范围
-            for i in range(self.radius_layout.count()):
-                self.radius_layout.itemAt(i).widget().setVisible(False)
-            for i in range(self.gap_layout.count()):
-                self.gap_layout.itemAt(i).widget().setVisible(False)
-            for i in range(self.angle_layout.count()):
-                self.angle_layout.itemAt(i).widget().setVisible(False)
+        parameter_layouts = (
+            self.radius_layout,
+            self.gap_layout,
+            self.angle_layout,
+            self.slit_width_layout,
+            self.slit_spacing_layout,
+            self.path_diff_layout,
+            self.grating_count_layout,
+        )
+        for layout in parameter_layouts:
+            self._set_sim_layout_visible(layout, False)
+
+        visible_layouts = {
+            "牛顿环实验": (self.radius_layout, self.gap_layout),
+            "劈尖干涉": (self.angle_layout, self.gap_layout),
+            "双缝干涉": (self.slit_width_layout, self.slit_spacing_layout),
+            "迈克尔逊干涉仪": (self.path_diff_layout,),
+            "光栅衍射": (self.slit_width_layout, self.slit_spacing_layout, self.grating_count_layout),
+        }.get(text, ())
+        for layout in visible_layouts:
+            self._set_sim_layout_visible(layout, True)
+
         # 更新仿真参数
         self.on_simulation_parameter_changed()
     
@@ -580,6 +593,27 @@ class OpticsLabTab(QWidget):
                     wavelength,
                     slit_width=slit_width,
                     slit_spacing=slit_spacing,
+                )
+        elif current_text == "迈克尔逊干涉仪":
+            path_difference = self.path_diff_spinbox.value()
+            for widget in target_widgets:
+                widget.update_parameters(
+                    3,
+                    wavelength,
+                    scale=FIXED_VIEW_RANGE_MM,
+                    path_difference=path_difference,
+                )
+        elif current_text == "光栅衍射":
+            slit_width = self.slit_width_spinbox.value()
+            slit_spacing = self.slit_spacing_spinbox.value()
+            grating_count = self.grating_count_spinbox.value()
+            for widget in target_widgets:
+                widget.update_parameters(
+                    4,
+                    wavelength,
+                    slit_width=slit_width,
+                    slit_spacing=slit_spacing,
+                    grating_count=grating_count,
                 )
 
     def _reset_video_state(self):
