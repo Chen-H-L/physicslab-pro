@@ -7,3 +7,5 @@ venv/
 .env
 build/
 dist/
+.codex_tools/
+website/downloads/
